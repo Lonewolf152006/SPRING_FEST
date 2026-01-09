@@ -75,10 +75,9 @@ export const DatabaseService = {
             .insert({
                 user_id: userId,
                 mode: mode,
-                report_data: reportData,
-                created_at: new Date().toISOString()
+                report_data: reportData
             });
-        
+
         if (error) console.error("Error logging session:", error);
     },
 
@@ -112,10 +111,9 @@ export const DatabaseService = {
                     creativity: review.creativityScore,
                     communication: review.communicationScore
                 },
-                comment: review.comment,
-                created_at: new Date(review.timestamp).toISOString()
+                comment: review.comment
             });
-        
+
         if (error) console.error("Error saving peer review:", error);
     },
 
@@ -153,8 +151,7 @@ export const DatabaseService = {
                 transcription: entry.transcription,
                 sentiment: entry.sentiment,
                 score: entry.score,
-                advice: entry.advice,
-                created_at: new Date().toISOString()
+                advice: entry.advice
             });
         if (error) console.error("Error saving wellness entry:", error);
     },
@@ -184,24 +181,22 @@ export const DatabaseService = {
                 idea: idea,
                 checklist: plan.checklist,
                 budget: plan.budgetEstimate,
-                email_draft: plan.emailDraft,
-                created_at: new Date().toISOString()
+                email_draft: plan.emailDraft
             });
         if (error) console.error("Error saving event plan:", error);
     },
 
     // --- Live Polls ---
-    async createPoll(poll: Poll) {
+    async createPoll(poll: Poll, teacherId: string) {
         if (!supabase) return;
         const { error } = await supabase
             .from('amep_polls')
             .insert({
                 id: poll.id,
-                teacher_id: 'T1', // Mocking teacher ID for now
+                teacher_id: teacherId,
                 question: poll.question,
                 options: poll.options,
-                is_active: poll.isActive,
-                created_at: new Date().toISOString()
+                is_active: poll.isActive
             });
         if (error) console.error("Error creating poll:", error);
     },
@@ -214,8 +209,8 @@ export const DatabaseService = {
             .eq('is_active', true)
             .order('created_at', { ascending: false })
             .limit(1)
-            .single();
-        
+            .maybeSingle();
+
         if (error || !data) return null;
         return {
             id: data.id,
