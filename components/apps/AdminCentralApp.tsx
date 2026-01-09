@@ -131,7 +131,7 @@ const AdminCentralApp = () => {
                                 </div>
                                 <div className="bg-white/5 p-6 rounded-2xl border border-white/5">
                                     <h4 className="text-slate-400 font-bold text-sm uppercase mb-2">Recommended Protocol</h4>
-                                    <p className="text-slate-200 font-mono text-sm">>> {alert.actionItem}</p>
+                                    <p className="text-slate-200 font-mono text-sm">&gt;&gt; {alert.actionItem}</p>
                                 </div>
                             </div>
                         )}
