@@ -1,1 +1,1 @@
-��'i�^QB{^�Ȩ�$D1
+https://stackblitz.com/storage/blobs/redirect/eyJfcmFpbHMiOnsiZGF0YSI6MTE1NzY3NjEyLCJwdXIiOiJibG9iX2lkIn19--858e91138d777957e620e33da6f721027dc24bd8/schema.sql
