@@ -32,7 +32,7 @@ import StudentLayout from './components/layouts/StudentLayout';
 import TeacherLayout from './components/layouts/TeacherLayout';
 import AdminLayout from './components/layouts/AdminLayout';
 
-// Mock Data (Defaults)
+// Mock Data (Fallback Defaults)
 const MOCK_CLASSES: SchoolClass[] = [{ id: 'C1', name: 'Class 10-A', teacherIds: ['T1'], studentIds: ['S1', 'S2', 'S3'] }];
 const MOCK_SUBJECTS: Subject[] = [
     { 
@@ -88,10 +88,13 @@ const App: React.FC = () => {
     const refreshClasses = async () => {
         try {
             const dbClasses = await DatabaseService.getClasses();
-            // Unified: Update state with database result directly, ensuring UI consistency
-            setClasses(dbClasses);
+            // If the database returns a result (even empty), we use it. 
+            // If it returns null, an error occurred and we keep existing state.
+            if (dbClasses !== null) {
+              setClasses(dbClasses);
+            }
         } catch (error) {
-            console.error("Failed to refresh institutional sectors:", error);
+            console.error("Institutional Link Sync Failure:", error);
         }
     };
 
@@ -155,12 +158,12 @@ const App: React.FC = () => {
         try {
             await AuthService.signOut();
         } catch (error) {
-            console.log("Cleanup complete.");
+            console.log("Session cache purged.");
         }
     };
 
     const handleLogin = async (role: UserRole, userId: string) => {
-        let mockName = 'Guest User';
+        let mockName = 'Guest Identity';
         if (role === UserRole.STUDENT) mockName = 'Alex Scholar';
         else if (role === UserRole.TEACHER) mockName = 'Prof. Day';
         else if (role === UserRole.ADMIN) mockName = 'Root Admin';
@@ -189,7 +192,10 @@ const App: React.FC = () => {
     const addClass = async (name: string) => {
         const newCls = await DatabaseService.createClass(name);
         if (newCls) {
+            // Explicitly sync the state immediately after successful database operation
             await refreshClasses();
+        } else {
+          throw new Error("Failed to initialize academic sector in the database. Ensure schema.sql has been executed.");
         }
     };
 

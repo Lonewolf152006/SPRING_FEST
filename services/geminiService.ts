@@ -156,11 +156,11 @@ export const GeminiService = {
         contents: { 
           parts: [
             { inlineData: { mimeType: 'image/jpeg', data: base64Data } }, 
-            { text: "Evaluate cognitive load from the image. Analyze: 1. Eye gaze (tracking accuracy), 2. Head orientation/tilt (curiosity vs avoidance), 3. Posture (slumped vs alert), 4. Facial tension (brow furrowing, jaw clenching). Return a confusionScore (0-100) and a mood summary (focused, confused, distracted, or engaged)." }
+            { text: "Examine the student image. Process: 1. Eye gaze (where they are looking), 2. Head orientation/tilt (curiosity or distraction), 3. Posture (slumped vs alert), 4. Facial tension (brow furrowing), 5. Eye focus (pupil fixity). Based on these biometric markers, provide a confusionScore (0-100) and a mood summary (focused, confused, distracted, or engaged)." }
           ] 
         },
         config: {
-          systemInstruction: "You are a high-precision biometric pedagogy sensor. Analyze subtle physical cues to detect confusion or distraction. Output strictly JSON.",
+          systemInstruction: "You are a high-precision biometric pedagogy interpretator. Analyze subtle physical cues to detect confusion, focus, or distraction. Output strictly JSON.",
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,

@@ -1,16 +1,26 @@
 import { supabase } from "./supabaseClient";
 import { Task, PeerReview, MoodEntry, EventPlan, Poll, SchoolClass } from "../types";
 
+const stringifyError = (e: any): string => {
+    if (typeof e === 'string') return e;
+    if (e?.message) return e.message;
+    if (e?.error_description) return e.error_description;
+    try {
+        return JSON.stringify(e);
+    } catch {
+        return String(e);
+    }
+};
+
 export const DatabaseService = {
     // --- Connectivity Check ---
     async ping(): Promise<boolean> {
         try {
             if (!supabase) return false;
             const { data, error } = await supabase.from('profiles').select('id').limit(1);
-            if (error) throw error;
+            if (error) return false;
             return true;
         } catch (e) {
-            console.error("Database connection check failed:", e);
             return false;
         }
     },
@@ -31,20 +41,20 @@ export const DatabaseService = {
                 .single();
             
             if (error || !data) {
-                const initial = { user_id: userId, xp: 0, level: 1, updated_at: new Date().toISOString() };
-                await supabase.from('amep_user_stats').insert(initial);
-                return { xp: 0, level: 1 };
+                const initial = { user_id: userId, xp: 0, level: 1 };
+                // Attempt to insert if missing, but ignore error if it exists
+                await supabase.from('amep_user_stats').upsert(initial);
+                return initial;
             }
             return data;
-        } catch (e) {
+        } catch (e: any) {
+            console.warn(`Database: Stats handshake delayed for ${userId}. Cause: ${stringifyError(e)}`);
             const saved = localStorage.getItem(localKey);
             return saved ? JSON.parse(saved) : { xp: 0, level: 1 };
         }
     },
 
     async updateUserStats(userId: string, xp: number, level: number) {
-        const localKey = `amep_stats_${userId}`;
-        localStorage.setItem(localKey, JSON.stringify({ xp, level }));
         try {
             if (!supabase) return;
             await supabase
@@ -54,18 +64,21 @@ export const DatabaseService = {
                     xp: xp, 
                     level: level,
                     updated_at: new Date().toISOString()
-                }, { onConflict: 'user_id' });
-        } catch (e) {
-            console.warn("Stats persistence failed.");
+                });
+        } catch (e: any) {
+            console.warn(`Database: Stats persistence failed. Cause: ${stringifyError(e)}`);
         }
     },
 
     // --- Class Management ---
-    async getClasses(): Promise<SchoolClass[]> {
+    async getClasses(): Promise<SchoolClass[] | null> {
         try {
-            if (!supabase) return [];
-            // Assuming a table amep_classes exists
-            const { data, error } = await supabase.from('amep_classes').select('*');
+            if (!supabase) return null;
+            const { data, error } = await supabase
+                .from('amep_classes')
+                .select('*')
+                .order('created_at', { ascending: false });
+            
             if (error) throw error;
             return (data || []).map(c => ({
                 id: c.id,
@@ -73,15 +86,21 @@ export const DatabaseService = {
                 teacherIds: c.teacher_ids || [],
                 studentIds: c.student_ids || []
             }));
-        } catch (e) {
-            return [];
+        } catch (e: any) {
+            console.error(`Database Error: Failed to retrieve institutional sectors. Details: ${stringifyError(e)}`);
+            return null;
         }
     },
 
     async createClass(name: string): Promise<SchoolClass | null> {
         try {
-            if (!supabase) return null;
-            const { data, error } = await supabase.from('amep_classes').insert({ name }).select().single();
+            if (!supabase) throw new Error("Database link offline.");
+            const { data, error } = await supabase
+                .from('amep_classes')
+                .insert([{ name: name }])
+                .select()
+                .single();
+            
             if (error) throw error;
             return {
                 id: data.id,
@@ -89,8 +108,8 @@ export const DatabaseService = {
                 teacherIds: [],
                 studentIds: []
             };
-        } catch (e) {
-            console.error("Failed to create class:", e);
+        } catch (e: any) {
+            console.error(`Database Error: Initialization of academic sector failed. Details: ${stringifyError(e)}`);
             return null;
         }
     },
@@ -102,7 +121,8 @@ export const DatabaseService = {
             const { data, error } = await supabase.from('amep_assignments').select('*');
             if (error) throw error;
             return data || [];
-        } catch (e) {
+        } catch (e: any) {
+            console.warn(`Database: Roster sync delayed. Cause: ${stringifyError(e)}`);
             return [];
         }
     },
@@ -110,15 +130,14 @@ export const DatabaseService = {
     async syncAssignments(teacherId: string, studentIds: string[]) {
         try {
             if (!supabase) return;
-            // Clear existing for this teacher
+            // Clean slate for this teacher
             await supabase.from('amep_assignments').delete().eq('teacher_id', teacherId);
-            // Bulk insert new
             if (studentIds.length > 0) {
                 const inserts = studentIds.map(sid => ({ teacher_id: teacherId, student_id: sid }));
                 await supabase.from('amep_assignments').insert(inserts);
             }
-        } catch (e) {
-            console.error("Assignment sync failed:", e);
+        } catch (e: any) {
+            console.error(`Database: Assignment sync failure. Cause: ${stringifyError(e)}`);
         }
     },
 
@@ -128,7 +147,10 @@ export const DatabaseService = {
             if (!supabase) throw new Error("Offline");
 
             let assignedStudentIds: string[] | null = null;
-            if (teacherId) {
+            // If it's a UUID (real user) and not a mock ID
+            const isRealTeacher = teacherId && teacherId.length > 5 && !['guest', 'T1', 'A1', 'S1'].includes(teacherId);
+            
+            if (isRealTeacher) {
                 const { data: assignments } = await supabase
                     .from('amep_assignments')
                     .select('student_id')
@@ -158,9 +180,9 @@ export const DatabaseService = {
                 return {
                     id: p.id,
                     name: p.full_name,
-                    email: p.email || `${p.full_name.toLowerCase().replace(' ', '.')}@amep-edu.org`,
+                    email: p.email || `${p.full_name?.toLowerCase().replace(/\s/g, '.')}@amep-edu.org`,
                     confusionIndex: recentLog?.report_data?.confusionScore ?? 0,
-                    mood: recentLog?.report_data?.mood || 'Stable',
+                    mood: recentLog?.report_data?.mood || 'focused',
                     mastery: studentMastery.map(m => ({
                         subjectId: m.subject_id,
                         score: m.score
@@ -168,7 +190,8 @@ export const DatabaseService = {
                     lastActive: recentLog?.created_at || new Date().toISOString()
                 };
             });
-        } catch (e) {
+        } catch (e: any) {
+            console.warn(`Database: Analytics collation delayed. Cause: ${stringifyError(e)}`);
             return [];
         }
     },
@@ -189,20 +212,16 @@ export const DatabaseService = {
             if (report?.confusionScore !== undefined) {
                 return {
                     confusionScore: report.confusionScore,
-                    summary: report.summary || "System sync successful.",
+                    summary: report.summary || "Link established.",
                     mood: report.mood || 'focused'
                 };
             }
             return null;
-        } catch (e) {
+        } catch (e: any) {
             return null;
         }
     },
 
-    /**
-     * Subscribes to real-time updates for a specific student's biometric metrics.
-     * Uses Supabase Realtime (WebSockets) to push updates instantly.
-     */
     subscribeToStudentMetrics(studentId: string, callback: (data: any) => void) {
         if (!supabase) return () => {};
         
@@ -218,19 +237,16 @@ export const DatabaseService = {
                 },
                 (payload) => {
                     const report = payload.new.report_data;
-                    // Filter for reports containing confusion scores
                     if (report && report.confusionScore !== undefined) {
                         callback({
                             confusionScore: report.confusionScore,
-                            summary: report.summary || "Real-time sync update received.",
+                            summary: report.summary || "Telemetry sync received.",
                             mood: report.mood || 'focused'
                         });
                     }
                 }
             )
-            .subscribe((status) => {
-                console.log(`[Realtime] Subscription status for ${studentId}: ${status}`);
-            });
+            .subscribe();
             
         return () => {
             supabase.removeChannel(channel);
@@ -244,7 +260,7 @@ export const DatabaseService = {
             const { data, error } = await supabase.from('amep_tasks').select('*').eq('user_id', userId);
             if (error) throw error;
             return data || [];
-        } catch (error) {
+        } catch (e: any) {
             return [];
         }
     },
@@ -261,8 +277,8 @@ export const DatabaseService = {
                 deadline: task.deadline, 
                 source: task.source 
             });
-        } catch (error) {
-            console.warn("Task sync failed.");
+        } catch (e: any) {
+            console.warn(`Database: Task update delayed. Cause: ${stringifyError(e)}`);
         }
     },
 
@@ -273,7 +289,7 @@ export const DatabaseService = {
             const { data, error } = await supabase.from('amep_mastery').select('subject_id, score').eq('user_id', userId);
             if (error) throw error;
             return (data || []).reduce((acc, curr) => ({ ...acc, [curr.subject_id]: curr.score }), {});
-        } catch (error) {
+        } catch (e: any) {
              return {};
         }
     },
@@ -287,8 +303,8 @@ export const DatabaseService = {
                 score: score,
                 last_updated: new Date().toISOString()
             }, { onConflict: 'user_id,subject_id' });
-        } catch (error) {
-            console.warn("Mastery sync failed.");
+        } catch (e: any) {
+            console.warn(`Database: Mastery sync failure. Cause: ${stringifyError(e)}`);
         }
     },
 
@@ -302,8 +318,8 @@ export const DatabaseService = {
                 report_data: reportData,
                 created_at: new Date().toISOString()
             });
-        } catch (e) {
-            console.warn("Log failed.");
+        } catch (e: any) {
+            console.warn(`Database: Logging failed. Cause: ${stringifyError(e)}`);
         }
     },
 
@@ -316,8 +332,8 @@ export const DatabaseService = {
                 report_data: { sessionMode, step, snapshot: base64Image, timestamp: Date.now(), event: 'PERIODIC_10S_CHECK' },
                 created_at: new Date().toISOString()
             });
-        } catch (e) {
-            console.error("Proctoring evidence storage failed:", e);
+        } catch (e: any) {
+            console.error(`Database: Evidence storage failure. Cause: ${stringifyError(e)}`);
         }
     },
 
@@ -326,7 +342,9 @@ export const DatabaseService = {
             if (!supabase) return [];
             
             let assignedStudentIds: string[] | null = null;
-            if (teacherId) {
+            const isRealTeacher = teacherId && teacherId.length > 5 && !['guest', 'T1', 'A1', 'S1'].includes(teacherId);
+
+            if (isRealTeacher) {
                 const { data: assignments } = await supabase.from('amep_assignments').select('student_id').eq('teacher_id', teacherId);
                 assignedStudentIds = (assignments || []).map(a => a.student_id);
                 if (assignedStudentIds.length === 0) return [];
@@ -346,7 +364,7 @@ export const DatabaseService = {
                 mode: log.mode,
                 studentId: log.user_id
             }));
-        } catch (e) {
+        } catch (e: any) {
              return [];
         }
     },
@@ -357,14 +375,13 @@ export const DatabaseService = {
             if (!supabase) return;
             await supabase.from('amep_polls').insert({
                 id: poll.id,
-                teacher_id: 'T1',
                 question: poll.question,
                 options: poll.options,
                 is_active: poll.isActive,
                 created_at: new Date().toISOString()
             });
-        } catch (e) {
-             console.warn("Poll failed.");
+        } catch (e: any) {
+             console.warn(`Database: Poll creation failure. Cause: ${stringifyError(e)}`);
         }
     },
 
@@ -386,7 +403,7 @@ export const DatabaseService = {
                 totalVotes: data.options.reduce((acc: number, o: any) => acc + o.votes, 0),
                 isActive: data.is_active
             };
-        } catch (e) {
+        } catch (e: any) {
              return null;
         }
     },
@@ -403,8 +420,8 @@ export const DatabaseService = {
                 budget_estimate: plan.budgetEstimate,
                 created_at: new Date().toISOString()
             });
-        } catch (e) {
-            console.error("Event plan storage failed:", e);
+        } catch (e: any) {
+            console.error(`Database: Event plan storage failed. Cause: ${stringifyError(e)}`);
         }
     },
 
@@ -420,8 +437,8 @@ export const DatabaseService = {
                 advice: entry.advice,
                 created_at: new Date().toISOString()
             });
-        } catch (e) {
-            console.error("Wellness entry storage failed:", e);
+        } catch (e: any) {
+            console.error(`Database: Wellness entry storage failure. Cause: ${stringifyError(e)}`);
         }
     },
 
@@ -435,8 +452,8 @@ export const DatabaseService = {
                 .order('created_at', { ascending: false });
             if (error) throw error;
             return data || [];
-        } catch (e) {
-            console.error("Failed to fetch wellness entries:", e);
+        } catch (e: any) {
+            console.error(`Database: Failed to fetch wellness entries. Cause: ${stringifyError(e)}`);
             return [];
         }
     }
