@@ -1,17 +1,22 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { QuizQuestion, ConfusionAnalysis, ExamProctoringAnalysis, PeerReviewAnalysis, ChatMessage, ClassInsights, LessonPlan, AdminReport, InterviewAnalysis, LectureSummary, CampusMapResponse, ResumeFeedback, CalendarEvent, Task, EventPlan, EventPost, MoodEntry, ScholarshipMatch, SafetyAlert, ProjectTemplate, ExplanationMode, MultimodalResult, PeerReview } from "../types";
 import { DatabaseService } from "./databaseService";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+const handleApiError = (e: any) => {
+  console.error("Gemini API Error:", e);
+  if (e?.message?.includes("429") || e?.message?.includes("quota")) {
+    return "QUOTA_EXCEEDED";
+  }
+  return "GENERAL_ERROR";
+};
+
 export const GeminiService = {
-  // Added proxy for getMasteryScores to resolve component errors
   async getMasteryScores(userId: string = 'S1'): Promise<Record<string, number>> {
     return await DatabaseService.getMasteryScores(userId);
   },
 
-  // Added proxy for updateMasteryScore to resolve component errors
   async updateMasteryScore(subjectId: string, delta: number, userId: string = 'S1') {
     const scores = await DatabaseService.getMasteryScores(userId);
     const currentScore = scores[subjectId] || 0;
@@ -28,19 +33,13 @@ export const GeminiService = {
           parts: [
             { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
             { 
-              text: `You are an AI analysis module integrated into an online examination platform.
-              Analyze the image using only visible facial cues and estimate the student’s current cognitive and emotional state.
-              Perform the following:
-              1. Detect whether a human face is clearly visible.
-              2. Estimate attention level based on eye gaze, head orientation, and posture (0-100).
-              3. Estimate confusion level (0-100).
-              4. Estimate stress level (0-100).
-              5. Estimate confidence level (0-100).
-              Return JSON only.` 
+              text: `Detect: 1. Face visibility. 2. Attention (0-100). 3. Confusion (0-100). 4. Stress (0-100). 5. Confidence (0-100).` 
             }
           ]
         },
         config: {
+          systemInstruction: "Act as a proctoring analysis engine. Output JSON only.",
+          thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -57,123 +56,136 @@ export const GeminiService = {
       });
       return JSON.parse(response.text || "{}");
     } catch (e) {
-      console.error("Proctoring analysis error", e);
+      handleApiError(e);
       return { faceDetected: false, attentionScore: 0, confusionScore: 0, stressScore: 0, confidenceScore: 0 };
     }
   },
 
   async generateAnonymousSummary(reviews: PeerReview[]): Promise<string> {
     try {
-      if (reviews.length === 0) return "No peer insights have been shared yet. Once your teammates submit their reflections, I'll synthesize them into a growth roadmap for you.";
-      
-      const reviewText = reviews.map(r => `[Teamwork: ${r.teamworkScore}, Creativity: ${r.creativityScore}, Communication: ${r.communicationScore}] Feedback: ${r.comment}`).join("\n---\n");
-      
-      const prompt = `Role: Expert Pedagogical Growth Coach.
-      Task: Synthesize peer feedback into a single, constructive, and completely anonymized summary.
-      
-      Rules:
-      1. DO NOT mention specific names or identifying gendered pronouns (use 'you' or 'the student').
-      2. Identify common themes in soft skills (Teamwork, Creativity, Communication).
-      3. Highlight 2 specific strengths mentioned by peers.
-      4. Suggest 1 actionable growth area based on the critiques.
-      5. Tone: Encouraging, objective, and professional.
-      6. Length: Maximum 120 words.
-      
-      Raw Feedback Data:
-      ${reviewText}`;
-
+      if (reviews.length === 0) return "No peer insights have been shared yet.";
+      const reviewText = reviews.map(r => `[T:${r.teamworkScore}, Cr:${r.creativityScore}, Co:${r.communicationScore}] Feedback: ${r.comment}`).join("\n---\n");
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: prompt,
+        contents: `Summarize: ${reviewText}`,
+        config: {
+          systemInstruction: "You are an expert pedagogical coach. Synthesize peer feedback into a single, constructive, anonymized summary. Max 100 words.",
+          thinkingConfig: { thinkingBudget: 0 }
+        }
       });
-
-      return response.text || "Synthesis engine encountered a delay. Please refresh in a moment.";
+      return response.text || "Synthesis engine encountered a delay.";
     } catch (e) {
-      console.error(e);
-      return "The Anonymization Engine is currently distilling insights. Check back soon! ✨";
+      if (handleApiError(e) === "QUOTA_EXCEEDED") return "Quota reached. Please wait a moment before distilling insights.";
+      return "The Anonymization Engine is currently distilling insights.";
     }
   },
 
-  async generateMultimodalSolution(topic: string, mode: ExplanationMode, wasCorrect: boolean, studentAnswer: string): Promise<MultimodalResult> {
+  async generateMultimodalSolution(topic: string, mode: ExplanationMode, wasCorrect: boolean, studentAnswer: string): Promise<MultimodalResult | string> {
     try {
-      const prompt = `Role: You are an expert adaptive tutor. 
-      Task: A student has just answered a question on "${topic}". They chose "${studentAnswer}", which was ${wasCorrect ? 'CORRECT' : 'INCORRECT'}. 
-      Generate an explanation in the "${mode}" format.
-      
-      Mode Definitions:
-      - flowchart: JSON array of 4-6 logic steps (Start -> Action -> Logic -> End) explaining the process.
-      - analogy: Relatable real-world metaphor (e.g. "Think of a Capacitor like a water tank").
-      - concept-map: Explain how this concept links to 2 other related academic topics.
-      - theoretical: Deep-dive academic explanation.
-      
-      Output exactly the requested JSON format. Be encouraging.`;
-
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
+        model: 'gemini-3-pro-preview',
+        contents: `Topic: ${topic}. Mode: ${mode}. Student was ${wasCorrect ? 'correct' : 'incorrect'}. Student answer: ${studentAnswer}`,
         config: {
+          systemInstruction: "Provide a multi-modal educational explanation. Output JSON matching the MultimodalResult type.",
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              mode: { type: Type.STRING },
               content: { type: Type.STRING },
               steps: { type: Type.ARRAY, items: { type: Type.STRING } },
-              mode: { type: Type.STRING }
+              connections: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    from: { type: Type.STRING },
+                    to: { type: Type.STRING }
+                  }
+                }
+              }
             },
-            required: ['content']
+            required: ['mode', 'content']
           }
         }
       });
-
-      return JSON.parse(response.text || "{}");
+      return JSON.parse(response.text || "{}") as MultimodalResult;
     } catch (e) {
-      console.error("Multimodal error", e);
-      return { mode, content: "Theoretical explanation unavailable. Review your notes." };
+      const err = handleApiError(e);
+      return err === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "An error occurred generating the explanation.";
     }
   },
 
-  async generateStudyGoals(subjects: string[]): Promise<string> {
+  async generateStudyGoals(topics: string[]): Promise<string> {
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Based on these subjects: ${subjects.join(', ')}, suggest a concise daily study goal sentence for a student.`,
+        contents: `Suggest a study goal for: ${topics.join(', ')}`,
+        config: { systemInstruction: "Output a single short, motivating study goal." }
       });
-      return response.text || "Focus on reviewing your recent notes.";
+      return response.text?.trim() || "Stay focused on your core concepts.";
     } catch (e) {
-      console.error(e);
-      return "Review your core subjects today.";
+      return "Master today's specific topics.";
     }
   },
 
   async getStudyCoachResponse(history: ChatMessage[], weakSubjects: string[]): Promise<string> {
-      try {
-          const systemPrompt = `You are a friendly AI Study Coach named 'Spark'. 
-          The student is struggling in: ${weakSubjects.length > 0 ? weakSubjects.join(', ') : 'None (doing great!)'}. 
-          Your goal is to set specific, small, achievable daily study goals.
-          Keep responses short (under 40 words), encouraging, and emoji-friendly.
-          If they ask for a goal, give them one specific task based on their weak subjects.`;
-          
-          const chat = ai.chats.create({
-              model: 'gemini-3-flash-preview',
-              config: { systemInstruction: systemPrompt },
-              history: history.slice(0, -1).map(h => ({ role: h.role, parts: [{ text: h.text }] }))
-          });
-          const result = await chat.sendMessage({ message: history[history.length - 1].text });
-          return result.text || "";
-      } catch (e) {
-          console.error(e);
-          return "I'm having a bit of trouble connecting to the cloud. Let's try again in a moment! 🌥️";
-      }
-  },
-
-  async generateQuiz(topic: string, difficulty: string): Promise<QuizQuestion> {
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Generate a multiple choice question about ${topic} at ${difficulty} level. 
-        Crucially, provide a 'theory' section explaining the core concept clearly.
-        Also provide a 'steps' array that breaks down the solution logic step-by-step (for a flow chart).`,
+        model: 'gemini-3-pro-preview',
+        contents: history.map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.text}`).join('\n'),
         config: {
+          systemInstruction: `You are Spark, a motivating AI Study Coach. Weak areas: ${weakSubjects.join(', ')}. Keep it brief and encouraging.`
+        }
+      });
+      return response.text || "I'm here to help you master these concepts!";
+    } catch (e) {
+      return "Let's keep working on your study targets.";
+    }
+  },
+
+  async submitSessionReport(data: any, isDiscovery: boolean) {
+    await DatabaseService.logSession(data.studentId, isDiscovery ? 'DISCOVERY' : 'PRACTICE', data);
+  },
+
+  async analyzeStudentAttention(base64Image: string): Promise<ConfusionAnalysis> {
+    try {
+      const base64Data = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: { 
+          parts: [
+            { inlineData: { mimeType: 'image/jpeg', data: base64Data } }, 
+            { text: "Evaluate cognitive load from the image. Analyze: 1. Eye gaze (tracking accuracy), 2. Head orientation/tilt (curiosity vs avoidance), 3. Posture (slumped vs alert), 4. Facial tension (brow furrowing, jaw clenching). Return a confusionScore (0-100) and a mood summary (focused, confused, distracted, or engaged)." }
+          ] 
+        },
+        config: {
+          systemInstruction: "You are a high-precision biometric pedagogy sensor. Analyze subtle physical cues to detect confusion or distraction. Output strictly JSON.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              confusionScore: { type: Type.INTEGER },
+              summary: { type: Type.STRING },
+              mood: { type: Type.STRING, enum: ['focused', 'confused', 'distracted', 'engaged'] }
+            },
+            required: ['confusionScore', 'summary', 'mood']
+          }
+        }
+      });
+      return JSON.parse(response.text || '{"confusionScore":0,"summary":"Biometric link stabilizing...","mood":"focused"}');
+    } catch (e) {
+      return { confusionScore: 0, summary: "Neural synchronization delayed.", mood: 'focused' };
+    }
+  },
+
+  async generateQuiz(topic: string, difficulty: 'easy' | 'medium' | 'hard'): Promise<QuizQuestion | string> {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: `Create a ${difficulty} quiz question about ${topic}.`,
+        config: {
+          systemInstruction: "Output JSON for a quiz question.",
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -184,127 +196,69 @@ export const GeminiService = {
               explanation: { type: Type.STRING },
               theory: { type: Type.STRING },
               steps: { type: Type.ARRAY, items: { type: Type.STRING } },
-              difficulty: { type: Type.STRING, enum: ['easy', 'medium', 'hard'] }
-            }
+              difficulty: { type: Type.STRING }
+            },
+            required: ['question', 'options', 'correctIndex', 'explanation', 'theory', 'steps']
           }
         }
       });
-      if (!response.text) throw new Error("No text returned");
-      return JSON.parse(response.text);
+      return JSON.parse(response.text || "{}");
     } catch (e) {
-      console.error(e);
-      return { 
-          question: "Service unavailable. Try again.", 
-          options: ["Retry"], 
-          correctIndex: 0, 
-          explanation: "Error", 
-          theory: "N/A", 
-          steps: [], 
-          difficulty: "medium" 
-      };
+      return handleApiError(e) === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "ERROR";
     }
   },
 
   async getProjectHelp(query: string): Promise<ChatMessage> {
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-pro-preview',
         contents: query,
         config: {
-          tools: [{ googleSearch: {} }]
+          tools: [{ googleSearch: {} }],
+          systemInstruction: "You are a project research assistant. Use Google Search for facts."
         }
       });
-
-      const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
-        ?.map((c: any) => c.web ? { title: c.web.title, uri: c.web.uri } : null)
-        .filter(Boolean) || [];
-
-      return {
-        id: Date.now().toString(),
-        role: 'model',
-        text: response.text || "I couldn't find information on that.",
-        sources: sources
-      };
+      const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => ({
+        title: c.web?.title || "Source",
+        uri: c.web?.uri || ""
+      })) || [];
+      return { id: Date.now().toString(), role: 'model', text: response.text || "", sources };
     } catch (e) {
-      return { id: Date.now().toString(), role: 'model', text: "Service unavailable." };
+      return { id: Date.now().toString(), role: 'model', text: "I'm having trouble accessing my research modules." };
     }
   },
 
-  async analyzeClassroomImage(base64Image: string): Promise<ConfusionAnalysis> {
+  async analyzePeerReview(text: string): Promise<PeerReviewAnalysis> {
     try {
-      const base64Data = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
-      
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: {
-          parts: [
-            { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-            { text: "Analyze the facial expressions and body language in this classroom view. Estimate a 'Confusion Score' (0-100), determine the general mood, and provide a 1-sentence summary." }
-          ]
-        },
+        contents: `Evaluate objectivity and feedback: ${text}`,
         config: {
+          systemInstruction: "Analyze peer review. Output JSON.",
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              confusionScore: { type: Type.INTEGER },
-              summary: { type: Type.STRING },
-              mood: { type: Type.STRING, enum: ['focused', 'confused', 'distracted', 'engaged'] }
+              teamworkScore: { type: Type.INTEGER },
+              creativityScore: { type: Type.INTEGER },
+              feedback: { type: Type.STRING }
             }
           }
         }
       });
-      return JSON.parse(response.text || "{}");
+      return JSON.parse(response.text || '{"teamworkScore":50,"creativityScore":50,"feedback":"Balanced"}');
     } catch (e) {
-      return { confusionScore: 0, summary: "Could not analyze image.", mood: "focused" };
+      return { teamworkScore: 0, creativityScore: 0, feedback: "Analysis engine offline." };
     }
-  },
-
-  async analyzeStudentAttention(base64Image: string): Promise<ConfusionAnalysis> {
-    try {
-      const base64Data = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
-      
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: {
-          parts: [
-            { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-            { text: "Analyze the facial expression of this specific student during a study session. Estimate a 'Confusion Score' (0-100), determine the mood (focused, confused, frustrated, bored), and provide a very brief 1-sentence observation." }
-          ]
-        },
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              confusionScore: { type: Type.INTEGER },
-              summary: { type: Type.STRING },
-              mood: { type: Type.STRING, enum: ['focused', 'confused', 'frustrated', 'bored'] }
-            }
-          }
-        }
-      });
-      return JSON.parse(response.text || "{}");
-    } catch (e) {
-      return { confusionScore: 0, summary: "Tracking paused.", mood: "focused" };
-    }
-  },
-
-  async submitSessionReport(data: any, isPrivate: boolean): Promise<void> {
-    // Persistent Storage via Supabase
-    await DatabaseService.logSession(data.studentId, data.mode, data);
-  },
-
-  async getProctoringLogs(): Promise<any[]> {
-    return await DatabaseService.getRecentProctoringLogs();
   },
 
   async createLessonPlan(subject: string, grade: string, objectives: string): Promise<LessonPlan> {
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Create a lesson plan for ${grade} ${subject} with objectives: ${objectives}.`,
+        model: 'gemini-3-pro-preview',
+        contents: `Subject: ${subject}. Grade: ${grade}. Objectives: ${objectives}`,
         config: {
+          systemInstruction: "Generate a lesson plan JSON.",
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -319,257 +273,116 @@ export const GeminiService = {
       });
       return JSON.parse(response.text || "{}");
     } catch (e) {
-      console.error(e);
-      throw e;
+      return { topic: subject, pblActivity: "Error generating plan", discussionQuestions: [], formativeAssessment: "" };
     }
   },
 
-  async analyzePeerReview(reviewText: string): Promise<PeerReviewAnalysis> {
+  async analyzeClassroomImage(base64: string): Promise<ConfusionAnalysis> {
+    return this.analyzeStudentAttention(base64);
+  },
+
+  async generateAdminReport(stats: any): Promise<AdminReport> {
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview', 
-        contents: `Analyze this peer review text for soft skills: "${reviewText}". output objective scores 0-100. Be extremely objective and look for specific examples of teamwork and creativity.`,
+        model: 'gemini-3-pro-preview',
+        contents: `Stats: ${JSON.stringify(stats)}`,
         config: {
-            thinkingConfig: { thinkingBudget: 1024 },
-            responseMimeType: 'application/json',
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    teamworkScore: { type: Type.INTEGER },
-                    creativityScore: { type: Type.INTEGER },
-                    feedback: { type: Type.STRING }
-                }
+          systemInstruction: "Generate an institutional admin report JSON.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              institutionHealthPulse: { type: Type.STRING },
+              overallMastery: { type: Type.NUMBER },
+              adoptionRate: { type: Type.NUMBER },
+              studentSatisfaction: { type: Type.NUMBER },
+              teacherAdoption: { type: Type.NUMBER },
+              topDepartment: { type: Type.STRING },
+              adminConfidenceScore: { type: Type.NUMBER }
             }
+          }
         }
       });
       return JSON.parse(response.text || "{}");
     } catch (e) {
-        return { teamworkScore: 0, creativityScore: 0, feedback: "Error" };
+      return { institutionHealthPulse: "Syncing...", overallMastery: 0, adoptionRate: 0, studentSatisfaction: 0, teacherAdoption: 0, topDepartment: "", adminConfidenceScore: 0 };
     }
-  },
-
-  async generateAdminReport(stats: any): Promise<AdminReport> {
-      try {
-          const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: `Generate an executive summary based on these stats: ${JSON.stringify(stats)}.`,
-              config: {
-                  responseMimeType: 'application/json',
-                  responseSchema: {
-                      type: Type.OBJECT,
-                      properties: {
-                          institutionHealthPulse: { type: Type.STRING },
-                          overallMastery: { type: Type.INTEGER },
-                          adoptionRate: { type: Type.INTEGER },
-                          studentSatisfaction: { type: Type.INTEGER },
-                          teacherAdoption: { type: Type.INTEGER },
-                          topDepartment: { type: Type.STRING },
-                          adminConfidenceScore: { type: Type.INTEGER }
-                      }
-                  }
-              }
-          });
-          return JSON.parse(response.text || "{}");
-      } catch (e) {
-          return { institutionHealthPulse: "Unavailable", overallMastery: 0, adoptionRate: 0, studentSatisfaction: 0, teacherAdoption: 0, topDepartment: "N/A", adminConfidenceScore: 0 };
-      }
-  },
-
-  async generateWeeklyReportText(stats: any): Promise<string> {
-      try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Write a professional weekly report for the school administration based on these stats: ${JSON.stringify(stats)}. Include a title, key highlights, and action items. Format as Markdown.`
-          });
-          return response.text || "Report generation failed.";
-      } catch (e) {
-          return "Error generating report.";
-      }
-  },
-
-  async generateSpeech(text: string): Promise<string | null> {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-preview-tts',
-            contents: { parts: [{ text }] },
-            config: {
-                // Fixed typo: responseModalities
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
-                }
-            }
-        });
-        return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
-    } catch (e) {
-        console.error("TTS Error", e);
-        return null;
-    }
-  },
-
-  async transcribeAudio(audioBase64: string, mimeType: string = 'audio/wav'): Promise<string> {
-      try {
-          const base64Data = audioBase64.includes(',') ? audioBase64.split(',')[1] : audioBase64;
-          const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: {
-                  parts: [
-                      { inlineData: { mimeType: mimeType, data: base64Data } },
-                      { text: "Transcribe this audio clearly." }
-                  ]
-              }
-          });
-          return response.text || "";
-      } catch (e) {
-          return "";
-      }
   },
 
   async getInterviewQuestion(role: string): Promise<string> {
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Generate a single challenging behavioral or technical interview question for a student applying for a ${role} internship. Keep it under 20 words.`
-        });
-        return response.text?.trim() || "Tell me about yourself.";
-    } catch (e) {
-        return "Tell me about a time you worked in a team.";
-    }
-  },
-
-  async analyzeInterviewResponse(audioBase64: string, question: string): Promise<InterviewAnalysis> {
-    try {
-        const base64Data = audioBase64.includes(',') ? audioBase64.split(',')[1] : audioBase64;
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: {
-                parts: [
-                    { inlineData: { mimeType: 'audio/wav', data: base64Data } },
-                    { text: `The user was asked: "${question}". Transcribe their answer, then analyze it for confidence, clarity, and content. Give a hiring probability (0-100).` }
-                ]
-            },
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        transcription: { type: Type.STRING },
-                        confidenceScore: { type: Type.INTEGER },
-                        hiringProbability: { type: Type.INTEGER },
-                        feedback: { type: Type.STRING },
-                        keywordsDetected: { type: Type.ARRAY, items: { type: Type.STRING } }
-                    }
-                }
-            }
-        });
-        return JSON.parse(response.text || "{}");
-    } catch (e) {
-        console.error(e);
-        return { transcription: "Error processing audio.", confidenceScore: 0, hiringProbability: 0, feedback: "Please try again.", keywordsDetected: [] };
-    }
-  },
-
-  async analyzeLectureVideo(videoBase64: string, mimeType: string = 'video/mp4'): Promise<LectureSummary> {
-      try {
-          const base64Data = videoBase64.includes(',') ? videoBase64.split(',')[1] : videoBase64;
-          const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: {
-                  parts: [
-                      { inlineData: { mimeType: mimeType, data: base64Data } },
-                      { text: "Analyze this lecture video. Segment it into chapters with timestamps, provide a summary for each, and generate 5 flashcards." }
-                  ]
-              },
-              config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    chapters: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          timestamp: { type: Type.STRING },
-                          title: { type: Type.STRING },
-                          summary: { type: Type.STRING }
-                        }
-                      }
-                    },
-                    flashcards: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          front: { type: Type.STRING },
-                          back: { type: Type.STRING }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-          });
-          return JSON.parse(response.text || "{}");
-      } catch (e) {
-          return { title: "Error", chapters: [], flashcards: [] };
-      }
-  },
-
-  async askCampusGuide(query: string, lat?: number, lng?: number): Promise<CampusMapResponse> {
-    try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: query,
-        config: {
-          tools: [{ googleMaps: {} }],
-          toolConfig: lat && lng ? { retrievalConfig: { latLng: { latitude: lat, longitude: lng } } } : undefined
-        }
-      });
-      
-      const links = response.candidates?.[0]?.groundingMetadata?.groundingChunks
-        ?.map((c: any) => c.web ? { title: c.web.title, uri: c.web.uri } : null)
-        .filter(Boolean) || [];
-
-      return {
-        text: response.text || "Here is what I found.",
-        links: links
-      };
-    } catch (e) {
-      return { text: "Map service unavailable.", links: [] };
-    }
-  },
-
-  async analyzeWhiteboard(base64Image: string): Promise<string> {
-    try {
-      const base64Data = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: {
-          parts: [
-            { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-            { text: "Extract text and summarize the content of this whiteboard image." }
-          ]
+        contents: `Generate an interview question for: ${role}`,
+        config: { systemInstruction: "Output one clear interview question only." }
+      });
+      return response.text || "Tell me about your most challenging project.";
+    } catch (e) {
+      return "Describe your strengths.";
+    }
+  },
+
+  async generateSpeech(text: string): Promise<string | null> {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text: `Say naturally: ${text}` }] }],
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+          }
         }
       });
-      return response.text || "No text found.";
+      return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
     } catch (e) {
-      return "Error analyzing image.";
+      return null;
+    }
+  },
+
+  async analyzeInterviewResponse(base64Audio: string, question: string): Promise<InterviewAnalysis> {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+        contents: {
+          parts: [
+            { inlineData: { mimeType: 'audio/pcm;rate=16000', data: base64Audio } },
+            { text: `Question was: ${question}. Analyze my answer.` }
+          ]
+        },
+        config: {
+          systemInstruction: "Analyze interview performance JSON.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              transcription: { type: Type.STRING },
+              confidenceScore: { type: Type.NUMBER },
+              hiringProbability: { type: Type.NUMBER },
+              feedback: { type: Type.STRING },
+              keywordsDetected: { type: Type.ARRAY, items: { type: Type.STRING } }
+            }
+          }
+        }
+      });
+      return JSON.parse(response.text || "{}");
+    } catch (e) {
+      return { transcription: "Error", confidenceScore: 0, hiringProbability: 0, feedback: "Analysis failed", keywordsDetected: [] };
     }
   },
 
   async reviewResume(text: string): Promise<ResumeFeedback> {
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Review this resume text: "${text}". Provide a score (0-100), suggestions, and a rewritten professional summary.`,
+        model: 'gemini-3-pro-preview',
+        contents: text,
         config: {
+          systemInstruction: "Provide resume feedback JSON.",
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              score: { type: Type.INTEGER },
+              score: { type: Type.NUMBER },
               suggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
               rewrittenSummary: { type: Type.STRING }
             }
@@ -578,7 +391,83 @@ export const GeminiService = {
       });
       return JSON.parse(response.text || "{}");
     } catch (e) {
-      return { score: 0, suggestions: [], rewrittenSummary: "Error" };
+      return { score: 0, suggestions: [], rewrittenSummary: "" };
+    }
+  },
+
+  async analyzeLectureVideo(base64: string, mimeType: string): Promise<LectureSummary> {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: { parts: [{ inlineData: { mimeType, data: base64 } }, { text: "Summarize this lecture." }] },
+        config: {
+          systemInstruction: "Generate lecture summary with chapters and flashcards JSON.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              chapters: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    timestamp: { type: Type.STRING },
+                    title: { type: Type.STRING },
+                    summary: { type: Type.STRING }
+                  }
+                }
+              },
+              flashcards: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    front: { type: Type.STRING },
+                    back: { type: Type.STRING }
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+      return JSON.parse(response.text || "{}");
+    } catch (e) {
+      return { title: "Error", chapters: [], flashcards: [] };
+    }
+  },
+
+  async transcribeAudio(base64: string, mimeType: string): Promise<string> {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+        contents: { parts: [{ inlineData: { mimeType, data: base64 } }, { text: "Transcribe this." }] }
+      });
+      return response.text || "";
+    } catch (e) {
+      return "";
+    }
+  },
+
+  async askCampusGuide(query: string, lat?: number, lng?: number): Promise<CampusMapResponse> {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: query,
+        config: {
+          tools: [{ googleMaps: {} }],
+          toolConfig: lat && lng ? { retrievalConfig: { latLng: { latitude: lat, longitude: lng } } } : undefined,
+          systemInstruction: "You are a campus map guide."
+        }
+      });
+      const links = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => ({
+        title: c.maps?.title || "Location",
+        uri: c.maps?.uri || ""
+      })) || [];
+      return { text: response.text || "Here is what I found on the map.", links };
+    } catch (e) {
+      return { text: "I'm having trouble connecting to the map services.", links: [] };
     }
   },
 
@@ -586,131 +475,128 @@ export const GeminiService = {
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Generate a short, motivating daily briefing based on these tasks: ${JSON.stringify(tasks)} and events: ${JSON.stringify(events)}.`,
+        contents: `Tasks: ${JSON.stringify(tasks)}. Events: ${JSON.stringify(events)}`,
+        config: { systemInstruction: "Provide a short, motivating daily briefing." }
       });
-      return response.text || "Have a productive day!";
+      return response.text || "You've got a busy day ahead, stay focused!";
     } catch (e) {
-      return "Ready to start the day.";
+      return "Make today productive!";
     }
   },
 
-  async autoSchedule(task: string, events: CalendarEvent[]): Promise<{startTime: string, reason: string}> {
-      try {
-          return { startTime: new Date().toISOString(), reason: "Free slot found" };
-      } catch (e) {
-          return { startTime: "", reason: "Error" };
-      }
+  async autoSchedule(task: string, events: CalendarEvent[]): Promise<{ startTime: string; reason: string }> {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: `Task: ${task}. Events: ${JSON.stringify(events)}`,
+        config: {
+          systemInstruction: "Suggest a start time for the task based on events. Output JSON.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              startTime: { type: Type.STRING },
+              reason: { type: Type.STRING }
+            }
+          }
+        }
+      });
+      return JSON.parse(response.text || '{"startTime":"","reason":"Error"}');
+    } catch (e) {
+      return { startTime: "", reason: "Auto-scheduler offline" };
+    }
   },
 
   async prioritizeTasks(tasks: Task[]): Promise<Task[]> {
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Prioritize these tasks: ${JSON.stringify(tasks)}. Return the same JSON structure but sorted and with updated 'priority' fields if needed.`,
-             config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            id: { type: Type.STRING },
-                            title: { type: Type.STRING },
-                            status: { type: Type.STRING },
-                            priority: { type: Type.STRING },
-                            deadline: { type: Type.STRING },
-                            source: { type: Type.STRING }
-                        }
-                    }
-                }
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: `Prioritize these tasks: ${JSON.stringify(tasks)}`,
+        config: {
+          systemInstruction: "Prioritize tasks by high, medium, low. Output JSON array.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                title: { type: Type.STRING },
+                priority: { type: Type.STRING },
+                status: { type: Type.STRING },
+                source: { type: Type.STRING }
+              }
             }
-        });
-        return JSON.parse(response.text || "[]");
-    } catch(e) {
-        return tasks;
+          }
+        }
+      });
+      return JSON.parse(response.text || "[]");
+    } catch (e) {
+      return tasks;
     }
   },
 
   async sortTasksByDeadline(tasks: Task[]): Promise<Task[]> {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Sort these tasks by their deadline in ascending chronological order (soonest first). Treat 'Today' as today, 'Tomorrow' as tomorrow, etc. Tasks with no deadline should be at the end. Return the list of tasks. Input: ${JSON.stringify(tasks)}`,
-             config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            id: { type: Type.STRING },
-                            title: { type: Type.STRING },
-                            status: { type: Type.STRING },
-                            priority: { type: Type.STRING },
-                            deadline: { type: Type.STRING },
-                            source: { type: Type.STRING }
-                        }
-                    }
-                }
-            }
-        });
-        return JSON.parse(response.text || "[]");
-    } catch(e) {
-        return tasks;
-    }
+    return [...tasks].sort((a, b) => (a.deadline || "").localeCompare(b.deadline || ""));
   },
 
-  async getConnectChatResponse(text: string): Promise<string> {
+  async getConnectChatResponse(prompt: string): Promise<string> {
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: text,
+        contents: prompt
+      });
+      return response.text || "";
+    } catch (e) {
+      return "Assistant currently unavailable.";
+    }
+  },
+
+  async analyzeWhiteboard(base64: string): Promise<string> {
+    try {
+      const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: base64Data } }, { text: "Summarize these notes." }] }
+      });
+      return response.text || "";
+    } catch (e) {
+      return "Whiteboard analysis failed.";
+    }
+  },
+
+  async planEvent(idea: string): Promise<EventPlan> {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: idea,
         config: {
-          systemInstruction: "You are a helpful AI assistant in a school communication app called AMEP. Keep answers concise, friendly, and relevant to students/teachers.",
-          tools: [{ googleSearch: {} }]
+          systemInstruction: "Plan an event JSON.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              checklist: { type: Type.ARRAY, items: { type: Type.STRING } },
+              emailDraft: { type: Type.STRING },
+              budgetEstimate: { type: Type.STRING }
+            }
+          }
         }
       });
-      return response.text || "I couldn't process that request.";
+      return JSON.parse(response.text || "{}");
     } catch (e) {
-      return "AI is currently offline.";
+      return { checklist: [], emailDraft: "", budgetEstimate: "" };
     }
   },
 
-  async planEvent(prompt: string): Promise<EventPlan> {
-      try {
-          const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: `Plan an event based on this idea: "${prompt}". Return a JSON object with a checklist, email draft to principal, and budget estimate.`,
-              config: {
-                  responseMimeType: 'application/json',
-                  responseSchema: {
-                      type: Type.OBJECT,
-                      properties: {
-                          checklist: { type: Type.ARRAY, items: { type: Type.STRING } },
-                          emailDraft: { type: Type.STRING },
-                          budgetEstimate: { type: Type.STRING }
-                      }
-                  }
-              }
-          });
-          return JSON.parse(response.text || "{}");
-      } catch (e) {
-          return { checklist: ["Define goal"], emailDraft: "Error", budgetEstimate: "0" };
-      }
-  },
-
-  async generateEventDescription(base64Image: string): Promise<EventPost> {
+  async generateEventDescription(base64: string): Promise<EventPost> {
     try {
-      const base64Data = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
+      const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: {
-          parts: [
-            { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-            { text: "Generate an engaging Instagram caption and hashtags for this event poster." }
-          ]
-        },
+        contents: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: base64Data } }, { text: "Describe this poster." }] },
         config: {
+          systemInstruction: "Generate social media caption and hashtags JSON.",
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -723,146 +609,130 @@ export const GeminiService = {
       });
       return JSON.parse(response.text || "{}");
     } catch (e) {
-      return { caption: "Join us!", hashtags: ["#event"] };
+      return { caption: "", hashtags: [] };
     }
   },
 
   async getWellnessChatResponse(history: ChatMessage[]): Promise<string> {
-      try {
-          const systemPrompt = `You are Lumi, a compassionate AI wellness companion for students. 
-          Listen actively, validate feelings, and offer gentle, evidence-based coping strategies. 
-          Keep responses warm, concise, and supportive. 
-          If a student expresses self-harm or severe distress, gently encourage them to contact a school counselor or professional help immediately.`;
-
-          const chat = ai.chats.create({
-              model: 'gemini-3-flash-preview',
-              config: { systemInstruction: systemPrompt },
-              history: history.slice(0, -1).map(h => ({ role: h.role, parts: [{ text: h.text }] }))
-          });
-          
-          const result = await chat.sendMessage({ message: history[history.length - 1].text });
-          return result.text || "I'm here for you.";
-      } catch (e) {
-          console.error(e);
-          return "I'm having trouble connecting right now, but I'm here listening.";
-      }
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: history.map(h => `${h.role === 'user' ? 'User' : 'Lumi'}: ${h.text}`).join('\n'),
+        config: { systemInstruction: "You are Lumi, a wellness companion. Be empathetic and supportive." }
+      });
+      return response.text || "I'm here for you.";
+    } catch (e) {
+      return "I'm listening.";
+    }
   },
 
   async analyzeMoodEntry(base64Audio: string): Promise<MoodEntry> {
-      try {
-          const base64Data = base64Audio.includes(',') ? base64Audio.split(',')[1] : base64Audio;
-          const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: {
-                  parts: [
-                      { inlineData: { mimeType: 'audio/wav', data: base64Data } },
-                      { text: "Analyze this voice journal entry. Transcribe it, detect the sentiment, provide a wellness score (0-100 where 100 is great), and offer a short piece of advice." }
-                  ]
-              },
-              config: {
-                  responseMimeType: 'application/json',
-                  responseSchema: {
-                      type: Type.OBJECT,
-                      properties: {
-                          transcription: { type: Type.STRING },
-                          sentiment: { type: Type.STRING, enum: ['Happy', 'Calm', 'Stressed', 'Anxious'] },
-                          score: { type: Type.INTEGER },
-                          advice: { type: Type.STRING }
-                      }
-                  }
-              }
-          });
-          return JSON.parse(response.text || "{}");
-      } catch (e) {
-          console.error(e);
-          return { transcription: "Audio processing failed.", sentiment: "Calm", score: 50, advice: "Take a deep breath." };
-      }
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+        contents: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=16000', data: base64Audio } }, { text: "Analyze mood." }] },
+        config: {
+          systemInstruction: "Analyze mood entry JSON.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              transcription: { type: Type.STRING },
+              sentiment: { type: Type.STRING },
+              advice: { type: Type.STRING },
+              score: { type: Type.INTEGER }
+            }
+          }
+        }
+      });
+      return JSON.parse(response.text || "{}");
+    } catch (e) {
+      return { transcription: "", sentiment: 'Calm', advice: "Take a deep breath.", score: 50 };
+    }
   },
 
-  async matchScholarships(studentProfile: any): Promise<ScholarshipMatch[]> {
-      try {
-          const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: `Find 3 fictional but realistic scholarship matches for this student profile: ${JSON.stringify(studentProfile)}.`,
-              config: {
-                  responseMimeType: 'application/json',
-                  responseSchema: {
-                      type: Type.ARRAY,
-                      items: {
-                          type: Type.OBJECT,
-                          properties: {
-                              name: { type: Type.STRING },
-                              amount: { type: Type.STRING },
-                              matchReason: { type: Type.STRING },
-                              probability: { type: Type.INTEGER }
-                          }
-                      }
-                  }
+  async matchScholarships(student: any): Promise<ScholarshipMatch[]> {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: `Student: ${JSON.stringify(student)}`,
+        config: {
+          systemInstruction: "Find scholarship matches JSON array.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                amount: { type: Type.STRING },
+                matchReason: { type: Type.STRING },
+                probability: { type: Type.NUMBER }
               }
-          });
-          return JSON.parse(response.text || "[]");
-      } catch (e) {
-          return [];
-      }
+            }
+          }
+        }
+      });
+      return JSON.parse(response.text || "[]");
+    } catch (e) {
+      return [];
+    }
   },
 
-  async analyzeSafetyFeed(base64Image: string): Promise<SafetyAlert> {
-      try {
-          const base64Data = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
-          const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: {
-                  parts: [
-                      { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-                      { text: "Analyze this security feed frame. Detect any safety concerns (unattended bags, running, conflicts, etc). If safe, report safe." }
-                  ]
-              },
-              config: {
-                  responseMimeType: 'application/json',
-                  responseSchema: {
-                      type: Type.OBJECT,
-                      properties: {
-                          severity: { type: Type.STRING, enum: ['Safe', 'Caution', 'Danger'] },
-                          description: { type: Type.STRING },
-                          actionItem: { type: Type.STRING }
-                      }
-                  }
-              }
-          });
-          return JSON.parse(response.text || "{}");
-      } catch (e) {
-          return { severity: 'Safe', description: 'Analysis failed.', actionItem: 'Check manual feed.' };
-      }
+  async analyzeSafetyFeed(base64: string): Promise<SafetyAlert> {
+    try {
+      const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: base64Data } }, { text: "Analyze security." }] },
+        config: {
+          systemInstruction: "Analyze security severity and actions JSON.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              severity: { type: Type.STRING },
+              description: { type: Type.STRING },
+              actionItem: { type: Type.STRING }
+            }
+          }
+        }
+      });
+      return JSON.parse(response.text || '{"severity":"Safe","description":"Normal","actionItem":"None"}');
+    } catch (e) {
+      return { severity: 'Safe', description: "Sync delay", actionItem: "Maintain monitor" };
+    }
   },
 
   async generateProjectTemplates(query: string): Promise<ProjectTemplate[]> {
-      try {
-          const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: `Generate 2 Project-Based Learning (PBL) templates for the topic: "${query}".`,
-              config: {
-                  responseMimeType: 'application/json',
-                  responseSchema: {
-                      type: Type.ARRAY,
-                      items: {
-                          type: Type.OBJECT,
-                          properties: {
-                              id: { type: Type.STRING },
-                              title: { type: Type.STRING },
-                              subject: { type: Type.STRING },
-                              difficulty: { type: Type.STRING },
-                              duration: { type: Type.STRING },
-                              description: { type: Type.STRING },
-                              milestones: { type: Type.ARRAY, items: { type: Type.STRING } },
-                              skillsTargeted: { type: Type.ARRAY, items: { type: Type.STRING } }
-                          }
-                      }
-                  }
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: `Project query: ${query}`,
+        config: {
+          systemInstruction: "Generate project templates JSON array.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                title: { type: Type.STRING },
+                subject: { type: Type.STRING },
+                difficulty: { type: Type.STRING },
+                duration: { type: Type.STRING },
+                description: { type: Type.STRING },
+                milestones: { type: Type.ARRAY, items: { type: Type.STRING } },
+                skillsTargeted: { type: Type.ARRAY, items: { type: Type.STRING } }
               }
-          });
-          return JSON.parse(response.text || "[]");
-      } catch (e) {
-          return [];
-      }
-  }
+            }
+          }
+        }
+      });
+      return JSON.parse(response.text || "[]");
+    } catch (e) {
+      return [];
+    }
+  },
 };

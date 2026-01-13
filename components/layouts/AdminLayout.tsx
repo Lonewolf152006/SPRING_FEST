@@ -15,7 +15,7 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, activeRoute, onNavi
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     return (
-        <div className="flex h-screen bg-slate-100 text-slate-800 overflow-hidden font-mono selection:bg-indigo-100">
+        <div className="flex min-h-screen bg-slate-100 text-slate-800 font-mono selection:bg-indigo-100 w-full overflow-x-hidden">
             {/* Mobile Header */}
             <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white/90 backdrop-blur-md border-b border-slate-200 z-50 flex items-center justify-between px-4">
                 <div className="flex items-center gap-2">
@@ -38,9 +38,9 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, activeRoute, onNavi
                 ></div>
             )}
 
-            {/* Sidebar */}
+            {/* Sidebar - Sticky on Desktop */}
             <aside className={`
-                fixed lg:static inset-y-0 left-0 z-50 w-64 bg-white/90 lg:bg-white/70 backdrop-blur-xl border-r border-indigo-100/50 flex flex-col transition-transform duration-300 shadow-xl lg:shadow-sm
+                fixed lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto inset-y-0 left-0 z-50 w-64 bg-white/90 lg:bg-white/70 backdrop-blur-xl border-r border-indigo-100/50 flex flex-col transition-transform duration-300 shadow-xl lg:shadow-sm
                 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
             `}>
                 <div className="p-6 border-b border-indigo-100/50 flex items-center gap-3 bg-gradient-to-b from-indigo-50/50 to-transparent mt-16 lg:mt-0">
@@ -90,7 +90,7 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, activeRoute, onNavi
             </aside>
 
             {/* Content Area */}
-            <main className="flex-1 relative bg-slate-50 w-full flex flex-col">
+            <main className="flex-1 relative bg-slate-50 w-full max-w-full flex flex-col min-w-0 overflow-x-hidden">
                 <header className="h-16 border-b border-indigo-100 bg-white/80 backdrop-blur-md flex items-center justify-between px-6 lg:px-10 sticky top-0 z-30 shadow-sm">
                     <div className="flex items-center gap-3">
                         <div className="w-2.5 h-2.5 bg-indigo-600 rounded-sm rotate-45 animate-pulse shadow-[0_0_8px_rgba(79,70,229,0.3)]"></div>
@@ -104,12 +104,12 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, activeRoute, onNavi
                     </div>
                 </header>
 
-                <div className="flex-1 overflow-y-auto relative z-10 scroll-smooth mt-16 lg:mt-0">
+                <div className="relative z-10 p-6 lg:p-10 mt-16 lg:mt-0 pb-20 w-full">
                     {/* Subtle Grid Background */}
                     <div className="absolute inset-0 bg-[linear-gradient(rgba(79,70,229,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(79,70,229,0.03)_1px,transparent_1px)] bg-[size:50px_50px]"></div>
                     <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-indigo-200/10 rounded-full blur-[120px] pointer-events-none"></div>
                     
-                    <div className="p-6 lg:p-10 relative z-10">
+                    <div className="relative z-10 w-full">
                         {children}
                     </div>
                 </div>

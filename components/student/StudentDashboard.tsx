@@ -28,7 +28,7 @@ interface XPParticle {
 }
 
 const StudentDashboard: React.FC<StudentDashboardProps> = ({ tasks, events }) => {
-  const { currentUserId, updateConceptScore } = useContext(HierarchyContext);
+  const { currentUserId, updateConceptScore, addXp, userProfile } = useContext(HierarchyContext);
   const [goal, setGoal] = useState("");
   const [mounted, setMounted] = useState(false);
   const [currentDate] = useState(new Date());
@@ -118,6 +118,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ tasks, events }) =>
 
       const targetSubject = subjects.find(s => s.id === id);
       if (!targetSubject) return;
+
+      // Reward User with XP in Global Context
+      addXp(50);
 
       // Local update for snappiness
       setSubjects(prev => prev.map(sub => {
@@ -235,7 +238,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ tasks, events }) =>
              </div>
 
              <div>
-                <h1 className="text-3xl font-bold text-slate-800 mb-2">Welcome back, Alex.</h1>
+                <h1 className="text-3xl font-bold text-slate-800 mb-2">Welcome back, {userProfile?.full_name.split(' ')[0]}.</h1>
                 <p className="text-indigo-800 text-lg opacity-80 max-w-2xl">{goal ? `AI Suggestion: ${goal}` : "Loading daily focus..."}</p>
              </div>
           </div>

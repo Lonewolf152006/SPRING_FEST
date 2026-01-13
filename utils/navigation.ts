@@ -33,6 +33,7 @@ export const ROLE_NAVIGATION: Record<UserRole, NavItemConfig[]> = {
     ],
     [UserRole.ADMIN]: [
         { id: 'launcher', label: 'Dashboard', icon: '📊' },
+        { id: 'user-mgmt', label: 'Identity Vault', icon: '👥' },
         { id: 'admin-central', label: 'Ops Central', icon: '🛡️' },
         { id: 'classroom', label: 'Analytics', icon: '📈' },
         { id: 'planner', label: 'Master Planner', icon: '🗓️' },
