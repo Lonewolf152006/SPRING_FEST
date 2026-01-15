@@ -1,4 +1,5 @@
 
+
 export enum UserRole {
   STUDENT = 'Student',
   TEACHER = 'Teacher',
@@ -11,7 +12,7 @@ export interface MultimodalResult {
   mode: ExplanationMode;
   content: string;
   steps?: string[];
-  connections?: { from: string; to: string }[];
+  connections?: { from: string; to: string; relation?: string }[];
 }
 
 export interface Team {
@@ -70,7 +71,7 @@ export interface QuizQuestion {
 export interface ConfusionAnalysis {
   confusionScore: number;
   summary: string;
-  mood: 'focused' | 'confused' | 'distracted' | 'engaged';
+  mood: 'focused' | 'confused' | 'distracted' | 'engaged' | 'frustrated' | 'bored';
 }
 
 export interface ExamProctoringAnalysis {

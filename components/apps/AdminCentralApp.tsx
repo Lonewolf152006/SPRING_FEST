@@ -81,7 +81,7 @@ const AdminCentralApp = () => {
         setIsSavingAssignments(true);
         await DatabaseService.syncAssignments(selectedTeacherId, currentAssignments);
         setIsSavingAssignments(false);
-        alert("Institutional roster updated for Faculty Member.");
+        window.alert("Institutional roster updated for Faculty Member.");
     };
 
     const handleProvision = async (e: React.FormEvent) => {

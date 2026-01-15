@@ -1,15 +1,13 @@
 
 import React, { useState, useContext, useRef, useEffect } from 'react';
-import { QuizQuestion, Concept, MultimodalResult, ConfusionAnalysis } from '../../types';
+import { QuizQuestion, Concept, MultimodalResult, ConfusionAnalysis, ExplanationMode } from '../../types';
 import { GeminiService } from '../../services/geminiService';
 import { CameraService } from '../../services/cameraService';
 import { DatabaseService } from '../../services/databaseService';
 import { HierarchyContext } from '../../App';
 
 const TOTAL_QUESTIONS = 10;
-const SNAPSHOT_INTERVAL = 10000; // Proctoring snapshot: 10 seconds
-const SYNC_INTERVAL = 5000; // DB Sync/Polling Fallback: 5 seconds
-const VISION_INTERVAL = 20000; // Gemini Vision Analysis: 20 seconds
+const SNAPSHOT_INTERVAL = 10000; // Requirement: 10 seconds
 
 const PracticeArena = () => {
   const { subjects, updateConceptScore, currentUserId, addXp } = useContext(HierarchyContext);
@@ -28,6 +26,11 @@ const PracticeArena = () => {
   const [selectedOptionIndex, setSelectedOptionIndex] = useState<number | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
+  // --- Multimodal State ---
+  const [activeExplanation, setActiveExplanation] = useState<ExplanationMode | null>(null);
+  const [multimodalContent, setMultimodalContent] = useState<MultimodalResult | null>(null);
+  const [generatingExplanation, setGeneratingExplanation] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [trackingActive, setTrackingActive] = useState(false);
@@ -40,20 +43,8 @@ const PracticeArena = () => {
       summary: "Initializing optical sync...",
       mood: 'focused'
   });
-  
-  const [isRealtimeActive, setIsRealtimeActive] = useState(false);
   const trackingIntervalRef = useRef<any>(null);
   const snapshotIntervalRef = useRef<any>(null);
-  const syncIntervalRef = useRef<any>(null);
-
-  // Helper for dynamic visuals
-  const getConfusionUI = (score: number) => {
-    if (score < 30) return { color: 'text-emerald-400', glow: 'shadow-emerald-500/20', bg: 'bg-emerald-500/10', pulse: '2s' };
-    if (score < 60) return { color: 'text-amber-400', glow: 'shadow-amber-500/20', bg: 'bg-amber-500/10', pulse: '1.5s' };
-    return { color: 'text-rose-400', glow: 'shadow-rose-500/20', bg: 'bg-rose-500/10', pulse: '0.8s' };
-  };
-
-  const ui = getConfusionUI(confusionData.confusionScore);
 
   // Requirement: Periodic snapshots every 10 seconds for proctoring evidence
   useEffect(() => {
@@ -62,7 +53,9 @@ const PracticeArena = () => {
               if (videoRef.current) {
                   const base64 = CameraService.captureFrame(videoRef.current);
                   if (base64) {
+                      // Associating with userId, session mode, step, and current timestamp (handled in DB service)
                       await DatabaseService.saveSessionSnapshot(currentUserId, base64, mode, sessionStep);
+                      console.log(`[Proctoring] Evidence captured at step ${sessionStep}`);
                   }
               }
           }, SNAPSHOT_INTERVAL);
@@ -71,46 +64,6 @@ const PracticeArena = () => {
       }
       return () => { if (snapshotIntervalRef.current) clearInterval(snapshotIntervalRef.current); };
   }, [trackingActive, sessionStep, isSubmitted, currentUserId, mode]);
-
-  // Requirement: Real-time update for .student-confusion-index via WebSocket (Supabase Realtime) and Polling Fallback
-  useEffect(() => {
-    let unsubscribeRealtime = () => {};
-
-    if (trackingActive && sessionStep >= 1 && sessionStep <= TOTAL_QUESTIONS && !isSubmitted) {
-        // 1. Initialize WebSocket Subscription (Real-time)
-        unsubscribeRealtime = DatabaseService.subscribeToStudentMetrics(currentUserId, (latest) => {
-            setConfusionData(prev => ({
-                ...prev,
-                confusionScore: latest.confusionScore,
-                mood: latest.mood,
-                summary: latest.summary
-            }));
-            setIsRealtimeActive(true);
-        });
-
-        // 2. Initialize Polling Fallback (in case WebSockets are blocked or Realtime isn't enabled)
-        syncIntervalRef.current = setInterval(async () => {
-            const latest = await DatabaseService.getLatestStudentMetric(currentUserId);
-            if (latest) {
-                setConfusionData(prev => ({
-                    ...prev,
-                    confusionScore: latest.confusionScore,
-                    mood: latest.mood,
-                    summary: latest.summary
-                }));
-            }
-        }, SYNC_INTERVAL);
-    } else {
-        if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
-        unsubscribeRealtime();
-        setIsRealtimeActive(false);
-    }
-
-    return () => { 
-        if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
-        unsubscribeRealtime();
-    };
-  }, [trackingActive, sessionStep, isSubmitted, currentUserId]);
 
   useEffect(() => {
     const runAnalysisCycle = async () => {
@@ -124,18 +77,11 @@ const PracticeArena = () => {
                 await GeminiService.submitSessionReport({ studentId: currentUserId, proctoring, timestamp: Date.now(), mode: 'EXAM' }, false);
             } else {
                 const analysis = await GeminiService.analyzeStudentAttention(base64);
-                // Report is saved; the subscription or polling will pick it up and update the UI
-                await GeminiService.submitSessionReport({ 
-                    studentId: currentUserId, 
-                    confusionScore: analysis.confusionScore, 
-                    mood: analysis.mood, 
-                    summary: analysis.summary,
-                    timestamp: Date.now(), 
-                    mode 
-                }, mode === 'discovery');
+                setConfusionData(analysis);
+                await GeminiService.submitSessionReport({ studentId: currentUserId, confusionScore: analysis.confusionScore, mood: analysis.mood, timestamp: Date.now(), mode }, mode === 'discovery');
             }
         } catch (e) {
-            console.warn("Vision analysis cycle interrupted.");
+            console.warn("Focus analysis cycle skipped.");
         }
     };
 
@@ -145,8 +91,8 @@ const PracticeArena = () => {
             const stream = await CameraService.start(videoRef.current);
             streamRef.current = stream;
             setTrackingActive(true);
-            trackingIntervalRef.current = setInterval(runAnalysisCycle, VISION_INTERVAL);
-            setTimeout(runAnalysisCycle, 1500);
+            trackingIntervalRef.current = setInterval(runAnalysisCycle, mode === 'exam' ? 45000 : 75000);
+            setTimeout(runAnalysisCycle, 2000);
         } catch (e) { 
             setTrackingActive(false); 
             setConsentGiven(false); 
@@ -185,6 +131,7 @@ const PracticeArena = () => {
     setSelectedOptionIndex(null);
     setIsSubmitted(false);
     
+    // speed enhancement: direct call using optimized flash model
     const q = await GeminiService.generateQuiz(contextTopic, difficulty);
     
     if (q === "QUOTA_EXCEEDED") {
@@ -216,6 +163,25 @@ const PracticeArena = () => {
       else if (mode === 'discovery' || mode === 'exam') GeminiService.updateMasteryScore(topic || "General", isCorrect ? 5 : -2, currentUserId);
   };
 
+  const handleExplanationChoice = async (explMode: ExplanationMode) => {
+      if (!question || selectedOptionIndex === null) return;
+      setActiveExplanation(explMode);
+      setGeneratingExplanation(true);
+      setMultimodalContent(null);
+
+      const isCorrect = selectedOptionIndex === question.correctIndex;
+      const studentAnswer = question.options[selectedOptionIndex];
+      const result = await GeminiService.generateMultimodalSolution(
+          question.theory || "General Concept", 
+          explMode, 
+          isCorrect, 
+          studentAnswer
+      );
+      
+      setMultimodalContent(result as MultimodalResult);
+      setGeneratingExplanation(false);
+  };
+
   const handleNextQuestion = () => {
       if (sessionStep >= TOTAL_QUESTIONS) { 
         setSessionStep(TOTAL_QUESTIONS + 1); 
@@ -223,6 +189,10 @@ const PracticeArena = () => {
       }
       else {
           setSessionStep(s => s + 1);
+          // Reset multimodal state
+          setActiveExplanation(null);
+          setMultimodalContent(null);
+          
           const diff = mode === 'exam' ? 'hard' : (selectedConcept ? (selectedConcept.masteryScore < 50 ? 'easy' : selectedConcept.masteryScore < 80 ? 'medium' : 'hard') : 'medium');
           fetchQuestion(selectedConcept?.name || topic, diff as any);
       }
@@ -236,25 +206,15 @@ const PracticeArena = () => {
       setTrackingActive(false); 
       setError(null); 
       setTopic(""); 
+      setActiveExplanation(null);
+      setMultimodalContent(null);
       if (streamRef.current) { CameraService.stop(streamRef.current); streamRef.current = null; }
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
       if (snapshotIntervalRef.current) clearInterval(snapshotIntervalRef.current);
-      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
   };
 
   return (
     <div className="max-w-6xl mx-auto space-y-10 animate-fade-in-up pb-10 relative">
-       <style>{`
-          @keyframes neural-pulse {
-            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
-            50% { transform: scale(1.05); box-shadow: 0 0 40px 10px rgba(255, 255, 255, 0.1); }
-            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
-          }
-          .animate-neural-pulse {
-            animation: neural-pulse var(--pulse-duration) ease-in-out infinite;
-          }
-       `}</style>
-
        <video ref={videoRef} className="hidden" muted playsInline />
 
        {showConsentModal && (
@@ -348,7 +308,11 @@ const PracticeArena = () => {
                             <div className="flex items-center gap-4">
                                 <span className="text-[10px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-600 px-4 py-2 rounded-full border border-indigo-100">Task {sessionStep} / {TOTAL_QUESTIONS}</span>
                                 <span className="text-[10px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 px-4 py-2 rounded-full border border-emerald-100">Score: {sessionScore}</span>
-                                <span className="text-[10px] font-black uppercase tracking-widest bg-rose-50 text-rose-600 px-4 py-2 rounded-full border border-rose-100 animate-pulse">📷 PROCTORING ACTIVE</span>
+                                {trackingActive ? (
+                                    <span className="text-[10px] font-black uppercase tracking-widest bg-rose-50 text-rose-600 px-4 py-2 rounded-full border border-rose-100 animate-pulse">📷 PROCTORING ACTIVE</span>
+                                ) : (
+                                    <span className="text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-400 px-4 py-2 rounded-full border border-slate-200">📷 PROCTORING OFF</span>
+                                )}
                             </div>
                        </div>
                        <button onClick={resetSession} className="bg-rose-50 text-rose-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all border border-rose-200">Exit Session</button>
@@ -385,42 +349,107 @@ const PracticeArena = () => {
 
                            {isSubmitted && (
                                <div className="animate-fade-in-up space-y-6 pt-6 border-t-2 border-slate-50">
-                                   <div className="bg-slate-900 rounded-[32px] p-8 text-white shadow-2xl relative overflow-hidden">
-                                       <div className="absolute top-0 right-0 p-8 opacity-5 text-6xl font-black pointer-events-none uppercase">Verified</div>
-                                       <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400 mb-6">Neural Solution Breakdown</h3>
-                                       
-                                       <div className="space-y-8">
-                                           <div>
-                                               <h4 className="text-xs font-extrabold text-emerald-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                                   <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></span>
-                                                   Conceptual Core
-                                               </h4>
-                                               <p className="text-slate-300 text-sm leading-relaxed italic border-l-2 border-slate-800 pl-4">
-                                                   {question.theory}
-                                               </p>
-                                           </div>
+                                   {/* Result Status */}
+                                   <div className={`p-6 rounded-[32px] text-center border-2 ${selectedOptionIndex === question.correctIndex ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+                                       <div className="text-4xl mb-2">{selectedOptionIndex === question.correctIndex ? '✨ Correct' : '❌ Incorrect'}</div>
+                                   </div>
 
-                                           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                                <div>
-                                                    <h4 className="text-xs font-extrabold text-indigo-400 uppercase tracking-widest mb-4">Solving Sequence</h4>
-                                                    <div className="space-y-4">
-                                                        {question.steps.map((step, idx) => (
-                                                            <div key={idx} className="flex gap-4 items-start">
-                                                                <div className="w-6 h-6 rounded-lg bg-white/10 flex items-center justify-center shrink-0 text-[10px] font-black border border-white/10">{idx + 1}</div>
-                                                                <p className="text-xs text-slate-400 leading-relaxed font-medium">{step}</p>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                                <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
-                                                    <h4 className="text-xs font-extrabold text-purple-400 uppercase tracking-widest mb-3">AI Deep Analysis</h4>
-                                                    <p className="text-slate-200 text-xs leading-relaxed">
-                                                        {question.explanation}
-                                                    </p>
-                                                </div>
+                                   {/* Interactive Choice Hub */}
+                                   {!activeExplanation ? (
+                                       <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-xl text-center space-y-6">
+                                           <div>
+                                               <h3 className="text-xl font-black text-slate-800 mb-2">How do you want to understand this?</h3>
+                                               <p className="text-slate-500 text-sm">Select your preferred learning mode for a tailored explanation.</p>
+                                           </div>
+                                           
+                                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                               <button onClick={() => handleExplanationChoice('flowchart')} className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 transition-all group">
+                                                   <span className="text-3xl group-hover:scale-110 transition-transform">📊</span>
+                                                   <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Flowchart</span>
+                                               </button>
+                                               <button onClick={() => handleExplanationChoice('analogy')} className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-amber-50 hover:bg-amber-100 border border-amber-100 transition-all group">
+                                                   <span className="text-3xl group-hover:scale-110 transition-transform">💡</span>
+                                                   <span className="text-[10px] font-black uppercase tracking-widest text-amber-600">Analogy</span>
+                                               </button>
+                                               <button onClick={() => handleExplanationChoice('concept-map')} className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-teal-50 hover:bg-teal-100 border border-teal-100 transition-all group">
+                                                   <span className="text-3xl group-hover:scale-110 transition-transform">🔗</span>
+                                                   <span className="text-[10px] font-black uppercase tracking-widest text-teal-600">Concept Map</span>
+                                               </button>
+                                               <button onClick={() => handleExplanationChoice('theoretical')} className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-purple-50 hover:bg-purple-100 border border-purple-100 transition-all group">
+                                                   <span className="text-3xl group-hover:scale-110 transition-transform">📖</span>
+                                                   <span className="text-[10px] font-black uppercase tracking-widest text-purple-600">Theoretical</span>
+                                               </button>
                                            </div>
                                        </div>
-                                   </div>
+                                   ) : (
+                                       <div className="bg-slate-900 rounded-[32px] p-8 text-white shadow-2xl relative overflow-hidden animate-fade-in-up">
+                                           <div className="absolute top-0 right-0 p-8 opacity-5 text-6xl font-black pointer-events-none uppercase">Verified</div>
+                                           <div className="flex justify-between items-center mb-6">
+                                               <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400">Neural Solution: {activeExplanation}</h3>
+                                               <button onClick={() => setActiveExplanation(null)} className="text-xs text-slate-400 hover:text-white underline">Change Mode</button>
+                                           </div>
+                                           
+                                           {generatingExplanation ? (
+                                               <div className="py-12 flex flex-col items-center justify-center gap-4">
+                                                   <div className="w-8 h-8 border-4 border-indigo-500 border-t-white rounded-full animate-spin"></div>
+                                                   <p className="text-xs font-bold text-indigo-300 animate-pulse">Adapting explanation format...</p>
+                                               </div>
+                                           ) : multimodalContent ? (
+                                               <div className="space-y-6">
+                                                   {/* Dynamic Content Rendering based on Mode */}
+                                                   {activeExplanation === 'flowchart' && multimodalContent.steps && (
+                                                       <div className="bg-white/10 rounded-2xl p-6 backdrop-blur-sm border border-white/10">
+                                                           {multimodalContent.steps.map((step, idx) => (
+                                                               <div key={idx} className="flex flex-col items-center">
+                                                                   <div className="bg-indigo-600 text-white p-4 rounded-xl shadow-lg w-full text-center text-sm font-medium border border-indigo-400">
+                                                                       {step}
+                                                                   </div>
+                                                                   {idx < (multimodalContent.steps?.length || 0) - 1 && (
+                                                                       <div className="h-6 w-0.5 bg-white/30 my-1"></div>
+                                                                   )}
+                                                                   {idx < (multimodalContent.steps?.length || 0) - 1 && (
+                                                                       <div className="mb-1 text-white/50">▼</div>
+                                                                   )}
+                                                               </div>
+                                                           ))}
+                                                       </div>
+                                                   )}
+
+                                                   {activeExplanation === 'analogy' && (
+                                                       <div className="bg-amber-900/40 border border-amber-500/30 p-8 rounded-[32px] relative overflow-hidden">
+                                                           <div className="text-6xl absolute top-4 right-4 opacity-20">💡</div>
+                                                           <p className="text-amber-100 text-lg leading-relaxed font-serif italic">
+                                                               "{multimodalContent.content}"
+                                                           </p>
+                                                       </div>
+                                                   )}
+
+                                                   {activeExplanation === 'concept-map' && multimodalContent.connections && (
+                                                       <div className="bg-teal-900/30 border border-teal-500/30 p-8 rounded-[32px] flex justify-center items-center gap-4 flex-wrap">
+                                                           {multimodalContent.connections.map((conn, i) => (
+                                                               <div key={i} className="flex items-center gap-2">
+                                                                   <div className="bg-teal-800 px-4 py-2 rounded-lg text-xs font-bold text-teal-200 border border-teal-600">{conn.from}</div>
+                                                                   <div className="text-[10px] text-teal-400 font-mono">--[{conn.relation}]--></div>
+                                                                   <div className="bg-teal-600 px-4 py-2 rounded-lg text-xs font-bold text-white border border-teal-400 shadow-lg shadow-teal-500/20">{conn.to}</div>
+                                                               </div>
+                                                           ))}
+                                                       </div>
+                                                   )}
+
+                                                   {activeExplanation === 'theoretical' && (
+                                                       <div className="bg-purple-900/30 border border-purple-500/30 p-8 rounded-[32px]">
+                                                           <h4 className="text-purple-300 font-bold uppercase text-xs mb-3 tracking-widest">Academic Deep Dive</h4>
+                                                           <p className="text-purple-100 text-sm leading-relaxed">
+                                                               {multimodalContent.content}
+                                                           </p>
+                                                       </div>
+                                                   )}
+                                               </div>
+                                           ) : (
+                                               <div className="text-center text-slate-400">Failed to generate content.</div>
+                                           )}
+                                       </div>
+                                   )}
                                </div>
                            )}
                        </div>
@@ -441,87 +470,47 @@ const PracticeArena = () => {
 
                <div className="lg:col-span-4 space-y-8 flex flex-col h-full">
                    <div className="bg-slate-900 rounded-[40px] p-10 text-white flex flex-col shadow-2xl relative overflow-hidden flex-1 border border-slate-800">
-                       <div className="flex justify-between items-center mb-8">
-                           <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400">Neural Feed</h3>
-                           <div className="flex items-center gap-2">
-                               <div className={`w-2 h-2 rounded-full ${isRealtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`}></div>
-                               <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">{isRealtimeActive ? 'Live WebSocket' : 'Syncing...'}</span>
-                           </div>
-                       </div>
-                       
+                       <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400 mb-8">Neural Feed</h3>
                        <div className="flex-1 flex flex-col items-center justify-center">
-                           {/* Enhanced .student-confusion-index with dynamic visuals & real-time updates */}
-                           <div className="student-confusion-index w-full flex flex-col items-center">
-                               
-                               <div 
-                                 className={`relative w-48 h-48 flex items-center justify-center rounded-full transition-all duration-1000 border-2 ${ui.color.replace('text', 'border')}/20 animate-neural-pulse`}
-                                 style={{ '--pulse-duration': ui.pulse } as any}
-                               >
-                                   {/* Background Glow */}
-                                   <div className={`absolute inset-0 rounded-full blur-2xl ${ui.bg} transition-all duration-1000 opacity-60`}></div>
-                                   
-                                   {/* Score Display */}
-                                   <div className="text-center z-10">
-                                       <div className={`text-6xl font-black tracking-tighter ${ui.color} transition-all duration-700`}>
-                                           {isSubmitted ? '---' : `${confusionData.confusionScore}%`}
-                                       </div>
-                                       <div className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em] mt-2">
-                                           {isSubmitted ? 'SNAPSHOT' : 'Cognitive Load'}
-                                       </div>
-                                   </div>
-
-                                   {/* Outer Ring Gauge */}
-                                   <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 100 100">
-                                       <circle cx="50" cy="50" r="48" fill="transparent" stroke="currentColor" strokeWidth="1" className="text-white/5" />
-                                       <circle 
-                                           cx="50" cy="50" r="48" 
-                                           fill="transparent" 
-                                           stroke="currentColor" 
-                                           strokeWidth="3" 
-                                           strokeDasharray="301.59" 
-                                           strokeDashoffset={301.59 - (301.59 * (isSubmitted ? 0 : confusionData.confusionScore)) / 100} 
-                                           strokeLinecap="round" 
-                                           className={`${ui.color} transition-all duration-[1.5s] ease-out`}
-                                       />
-                                   </svg>
+                           {/* Requirement: Class student-confusion-index for display and analysis hook */}
+                           <div className="student-confusion-index text-center w-full">
+                               <div className="text-7xl font-black mb-1 text-transparent bg-clip-text bg-gradient-to-br from-indigo-400 to-purple-400 transition-all duration-[2s]">
+                                   {isSubmitted ? '---' : (confusionData.confusionScore || 0) + '%'}
+                               </div>
+                               <div className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mt-2 mb-8">
+                                   {isSubmitted ? 'FEED CAPTURED' : 'Biometric Confusion Index'}
                                </div>
 
                                {!isSubmitted && (
-                                   <div className="mt-12 w-full space-y-6 animate-fade-in text-center">
-                                       <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border ${ui.color.replace('text', 'border')}/20 ${ui.bg} backdrop-blur-md`}>
-                                           <span className={`w-2 h-2 rounded-full bg-current animate-pulse ${ui.color}`}></span>
-                                           <span className={`text-[10px] font-black uppercase tracking-widest ${ui.color}`}>
-                                               Status: {confusionData.mood || 'analyzing'}
-                                           </span>
+                                   <div className="space-y-6 animate-fade-in">
+                                       <div className="bg-white/5 border border-white/5 p-5 rounded-3xl backdrop-blur-sm">
+                                           <div className={`text-[10px] font-black uppercase tracking-[0.2em] mb-2 flex items-center justify-center gap-2 ${
+                                               confusionData.mood === 'focused' || confusionData.mood === 'engaged' ? 'text-emerald-400' : 
+                                               confusionData.mood === 'confused' || confusionData.mood === 'frustrated' ? 'text-rose-400' : 'text-amber-400'
+                                           }`}>
+                                               <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                                               Mood: {confusionData.mood || 'calibrating'}
+                                           </div>
+                                           <p className="text-[11px] text-slate-400 italic leading-relaxed px-2">
+                                               "{confusionData.summary || 'Analyzing gaze, posture, and facial tension for cognitive mapping...'}"
+                                           </p>
                                        </div>
                                        
-                                       <p className="text-xs text-slate-400 italic leading-relaxed px-4 font-medium max-w-[280px] mx-auto min-h-[40px] transition-all">
-                                           "{confusionData.summary || 'Synchronizing biometric gaze markers...'}"
-                                       </p>
-                                       
-                                       <div className="grid grid-cols-2 gap-x-8 gap-y-4 pt-6 border-t border-white/5 text-left px-4">
-                                           <div className="space-y-1">
-                                               <div className="flex justify-between items-center text-[8px] font-black text-slate-500 uppercase tracking-widest">
-                                                   <span>Gaze focus</span>
-                                                   <span className="text-emerald-500">92%</span>
-                                               </div>
-                                               <div className="h-1 bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-emerald-500/40" style={{width: '92%'}}></div></div>
-                                           </div>
-                                           <div className="space-y-1">
-                                               <div className="flex justify-between items-center text-[8px] font-black text-slate-500 uppercase tracking-widest">
-                                                   <span>Stability</span>
-                                                   <span className="text-indigo-500">84%</span>
-                                               </div>
-                                               <div className="h-1 bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-indigo-500/40" style={{width: '84%'}}></div></div>
-                                           </div>
+                                       <div className="grid grid-cols-2 gap-3 pt-4 border-t border-white/5">
+                                           <div className="text-[8px] font-black text-slate-600 uppercase text-left">Gaze Focus</div>
+                                           <div className="h-1 bg-white/5 rounded-full overflow-hidden mt-1.5"><div className="h-full bg-indigo-500/40" style={{width: '85%'}}></div></div>
+                                           <div className="text-[8px] font-black text-slate-600 uppercase text-left">Head Tilt</div>
+                                           <div className="h-1 bg-white/5 rounded-full overflow-hidden mt-1.5"><div className="h-full bg-purple-500/40" style={{width: '60%'}}></div></div>
+                                           <div className="text-[8px] font-black text-slate-600 uppercase text-left">Postural Stability</div>
+                                           <div className="h-1 bg-white/5 rounded-full overflow-hidden mt-1.5"><div className="h-full bg-blue-500/40" style={{width: '92%'}}></div></div>
                                        </div>
                                    </div>
                                )}
                            </div>
                            
-                           <div className="mt-auto pt-10 w-full space-y-4">
-                               <div className="flex items-center justify-between text-[8px] font-bold text-slate-600 uppercase tracking-widest">
-                                   <span>Neural Link Integrity</span>
+                           <div className="mt-12 w-full space-y-4">
+                               <div className="flex items-center justify-between text-[8px] font-bold text-slate-500 uppercase tracking-widest">
+                                   <span>Identity Integrity</span>
                                    <span className="text-emerald-500">OPTIMAL</span>
                                </div>
                                <div className="h-1 bg-white/5 rounded-full overflow-hidden">

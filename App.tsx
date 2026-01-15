@@ -1,3 +1,4 @@
+
 import React, { useState, createContext, useContext, useEffect } from 'react';
 import { UserRole, Task, CalendarEvent, Subject, SchoolClass, Team, PeerReview } from './types';
 import { DatabaseService } from './services/databaseService';
@@ -32,7 +33,7 @@ import StudentLayout from './components/layouts/StudentLayout';
 import TeacherLayout from './components/layouts/TeacherLayout';
 import AdminLayout from './components/layouts/AdminLayout';
 
-// Mock Data (Fallback Defaults)
+// Mock Data
 const MOCK_CLASSES: SchoolClass[] = [{ id: 'C1', name: 'Class 10-A', teacherIds: ['T1'], studentIds: ['S1', 'S2', 'S3'] }];
 const MOCK_SUBJECTS: Subject[] = [
     { 
@@ -66,11 +67,10 @@ export const HierarchyContext = createContext<{
     currentUserId: string;
     userProfile: UserProfile | null;
     addXp: (amount: number) => void;
-    addClass: (name: string) => Promise<void>;
 }>({
     classes: [], subjects: [], teams: [], students: [], peerReviews: [],
     updateConceptScore: () => {}, addPeerReview: () => {}, currentUserId: '',
-    userProfile: null, addXp: () => {}, addClass: async () => {}
+    userProfile: null, addXp: () => {}
 });
 
 const App: React.FC = () => {
@@ -83,27 +83,11 @@ const App: React.FC = () => {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [events, setEvents] = useState<CalendarEvent[]>([]);
     const [peerReviews, setPeerReviews] = useState<PeerReview[]>([]);
-    const [classes, setClasses] = useState<SchoolClass[]>(MOCK_CLASSES);
-
-    const refreshClasses = async () => {
-        try {
-            const dbClasses = await DatabaseService.getClasses();
-            // If the database returns a result (even empty), we use it. 
-            // If it returns null, an error occurred and we keep existing state.
-            if (dbClasses !== null) {
-              setClasses(dbClasses);
-            }
-        } catch (error) {
-            console.error("Institutional Link Sync Failure:", error);
-        }
-    };
 
     useEffect(() => {
         const bootSequence = async () => {
             const isConnected = await DatabaseService.ping();
             setDbStatus(isConnected ? 'connected' : 'error');
-            
-            await refreshClasses();
 
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user) {
@@ -158,12 +142,12 @@ const App: React.FC = () => {
         try {
             await AuthService.signOut();
         } catch (error) {
-            console.log("Session cache purged.");
+            console.log("Cleanup complete.");
         }
     };
 
     const handleLogin = async (role: UserRole, userId: string) => {
-        let mockName = 'Guest Identity';
+        let mockName = 'Guest User';
         if (role === UserRole.STUDENT) mockName = 'Alex Scholar';
         else if (role === UserRole.TEACHER) mockName = 'Prof. Day';
         else if (role === UserRole.ADMIN) mockName = 'Root Admin';
@@ -187,16 +171,6 @@ const App: React.FC = () => {
         
         setUserProfile(prev => prev ? { ...prev, xp: newXp, level: newLevel } : null);
         DatabaseService.updateUserStats(userProfile.id, newXp, newLevel);
-    };
-
-    const addClass = async (name: string) => {
-        const newCls = await DatabaseService.createClass(name);
-        if (newCls) {
-            // Explicitly sync the state immediately after successful database operation
-            await refreshClasses();
-        } else {
-          throw new Error("Failed to initialize academic sector in the database. Ensure schema.sql has been executed.");
-        }
     };
 
     if (initializing) {
@@ -249,12 +223,11 @@ const App: React.FC = () => {
 
     return (
         <HierarchyContext.Provider value={{ 
-            classes, subjects: MOCK_SUBJECTS, teams: MOCK_TEAMS, students: MOCK_STUDENTS, 
+            classes: MOCK_CLASSES, subjects: MOCK_SUBJECTS, teams: MOCK_TEAMS, students: MOCK_STUDENTS, 
             peerReviews, updateConceptScore: (id, delta) => {}, addPeerReview: (r) => setPeerReviews([...peerReviews, r]), 
             currentUserId: userProfile?.id || 'guest',
             userProfile,
-            addXp,
-            addClass
+            addXp
         }}>
             <div className="flex flex-col min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-slate-50">
                 <GlobalNavBar 

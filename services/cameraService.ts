@@ -13,7 +13,7 @@ export const CameraService = {
             await videoEl.play();
             return stream;
         } catch (err) {
-            console.error("Camera start failed:", err);
+            console.warn("Camera start failed (Permission denied or unavailable):", err);
             throw err;
         }
     },

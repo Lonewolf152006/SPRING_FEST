@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useContext } from 'react';
 import { AdminReport, SchoolClass, Subject, UserRole } from '../../types';
 import { GeminiService } from '../../services/geminiService';
@@ -6,7 +7,7 @@ import { supabase } from '../../services/supabaseClient';
 import { HierarchyContext } from '../../App';
 
 const AdminDashboard = () => {
-    const { classes, subjects, addClass } = useContext(HierarchyContext);
+    const { classes, subjects } = useContext(HierarchyContext);
     const [report, setReport] = useState<AdminReport | null>(null);
     const [viewMode, setViewMode] = useState<'analytics' | 'hierarchy' | 'users'>('analytics');
     
@@ -16,10 +17,6 @@ const AdminDashboard = () => {
     const [provisioning, setProvisioning] = useState(false);
     const [newUser, setNewUser] = useState({ fullName: '', email: '', password: '', role: UserRole.STUDENT });
     const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-
-    // Class creation state
-    const [newClassName, setNewClassName] = useState("");
-    const [isCreatingClass, setIsCreatingClass] = useState(false);
 
     useEffect(() => {
         const mockStats = { term: 'Spring 2024', activeUsers: 4500, avgGrade: 88, dept: 'Engineering' };
@@ -66,20 +63,6 @@ const AdminDashboard = () => {
             }
         } finally {
             setProvisioning(false);
-        }
-    };
-
-    const handleAddClass = async () => {
-        if (!newClassName.trim()) return;
-        setIsCreatingClass(true);
-        try {
-            await addClass(newClassName);
-            setNewClassName("");
-            alert("New academic sector initialized: " + newClassName);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setIsCreatingClass(false);
         }
     };
 
@@ -145,35 +128,16 @@ const AdminDashboard = () => {
             {viewMode === 'hierarchy' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <div className="bg-white rounded-[32px] border border-slate-200 p-6 shadow-sm">
-                        <div className="flex flex-col gap-6 mb-8">
-                             <div className="flex justify-between items-center">
-                                <h3 className="font-bold text-slate-800">Structure Registry</h3>
-                                <span className="text-[10px] font-black uppercase text-slate-400">{classes.length} Academic Nodes</span>
-                             </div>
-                             
-                             <div className="flex gap-2">
-                                <input 
-                                    value={newClassName}
-                                    onChange={(e) => setNewClassName(e.target.value)}
-                                    placeholder="Enter new class name..."
-                                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm focus:border-indigo-500 outline-none transition-all"
-                                />
-                                <button 
-                                    onClick={handleAddClass}
-                                    disabled={isCreatingClass || !newClassName.trim()}
-                                    className="text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold shadow-lg shadow-indigo-200 disabled:opacity-50 transition-all active:scale-95"
-                                >
-                                    {isCreatingClass ? 'Initializing...' : 'Add Sector'}
-                                </button>
-                             </div>
+                        <div className="flex justify-between items-center mb-6">
+                             <h3 className="font-bold text-slate-800">Structure Registry</h3>
+                             <button className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm">Add New Class</button>
                         </div>
-                        
                         <div className="space-y-4">
                             {classes.map(cls => (
                                 <div key={cls.id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50">
                                     <div className="flex justify-between items-center mb-3">
                                         <h4 className="font-bold text-slate-700">{cls.name}</h4>
-                                        <span className="text-[10px] bg-white border border-slate-200 px-2 py-1 rounded-full font-bold uppercase text-slate-400">ID: {cls.id.substring(0,8)}</span>
+                                        <span className="text-[10px] bg-white border border-slate-200 px-2 py-1 rounded-full font-bold uppercase text-slate-400">Class ID: {cls.id}</span>
                                     </div>
                                     <div className="space-y-2">
                                         {subjects.filter(s => s.classId === cls.id).map(s => (
