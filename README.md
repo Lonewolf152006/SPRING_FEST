@@ -162,9 +162,9 @@ http://localhost:5173
 ## 🎮 Usage Guide
 
 ### Login Options
-- **Student Demo:** Scholar quick login or Student account
-- **Teacher Demo:** Faculty quick login
-- **Admin Demo:** Root quick login
+- **Student Demo:** Scholar quick login or 1@g.c,password- 123456
+- **Teacher Demo:** Faculty quick login or teacher.gmail.com,password - 123456
+- **Admin Demo:** Root quick login or admin@amp.com,password - 123456
 
 ### Permissions
 Camera & Microphone access is required for:
