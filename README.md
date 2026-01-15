@@ -4,7 +4,7 @@
 **ZYNC** is a futuristic EdTech operating system designed to bridge the gap between students, educators, and administrators using advanced AI. It combines adaptive learning, biometric engagement tracking, and gamified mastery paths to create a holistic educational ecosystem.
 
 <p align="center">
-  <img src="assets/zync-preview.png" width="90%" alt="ZYNC Platform Preview">
+  <img src="zync-preview.png" width="90%" alt="ZYNC Platform Preview">
 </p>
 
 ---
