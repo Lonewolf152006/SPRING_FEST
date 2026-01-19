@@ -7,7 +7,8 @@ interface LandingPageProps {
 }
 
 // --- Interactive 3D Tilt Card ---
-const TiltCard = ({ children, className = "" }: { children: React.ReactNode, className?: string }) => {
+// Fix: Made children optional to prevent TS error when passed as JSX content (line 355, 523, 541, 561, 606, 624)
+const TiltCard = ({ children, className = "" }: { children?: React.ReactNode, className?: string }) => {
     const ref = useRef<HTMLDivElement>(null);
     const x = useMotionValue(0);
     const y = useMotionValue(0);
@@ -55,7 +56,6 @@ const TiltCard = ({ children, className = "" }: { children: React.ReactNode, cla
 
 // --- Dynamic Text Component ---
 const TextCycler = () => {
-  // Fixed redundancy: replaced "Futures" with "Innovators"
   const words = ["Intelligence", "Potential", "Innovators", "Learning"];
   const [index, setIndex] = useState(0);
 
@@ -67,7 +67,7 @@ const TextCycler = () => {
   }, []);
 
   return (
-    <span className="relative inline-flex flex-col h-[1.1em] overflow-visible align-top text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 min-w-[200px] md:min-w-[300px]">
+    <span className="relative inline-flex items-center justify-center h-[1.1em] overflow-visible align-top text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 min-w-[120px] md:min-w-[180px]">
       <AnimatePresence mode='popLayout'>
         <motion.span
           key={words[index]}
@@ -75,7 +75,7 @@ const TextCycler = () => {
           animate={{ y: "0%", opacity: 1, filter: "blur(0px)" }}
           exit={{ y: "-100%", opacity: 0, filter: "blur(10px)" }}
           transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-          className="absolute left-0 top-0 whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 py-1"
+          className="absolute whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 py-1 text-center w-full"
         >
           {words[index]}
         </motion.span>
@@ -447,7 +447,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
             transition={{ duration: 0.8, delay: 0.4 }}
             className="text-lg md:text-2xl text-slate-500 font-medium leading-relaxed max-w-3xl mx-auto mb-12"
         >
-            The operating system for future <TextCycler />. <br/>
+            The operating system for future <TextCycler />.<br/>
             Autonomous mastery tracking, neural proctoring, and project-based growth.
         </motion.p>
 
@@ -684,7 +684,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                   </div>
                   <div className="mt-4 md:mt-0 text-[10px] font-bold bg-white/10 px-4 py-2 rounded-full text-indigo-300 border border-white/5 flex items-center gap-2">
                       <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse"></span>
-                      Powered by Gemini 1.5 Pro
+                      Powered by Gemini 3 Flash
                   </div>
               </div>
           </div>

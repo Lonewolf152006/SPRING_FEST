@@ -1,5 +1,4 @@
 
-
 export enum UserRole {
   STUDENT = 'Student',
   TEACHER = 'Teacher',
@@ -134,16 +133,12 @@ export interface InterviewAnalysis {
   keywordsDetected: string[];
 }
 
-export interface LectureChapter {
-  timestamp: string;
-  title: string;
-  summary: string;
-}
-
 export interface LectureSummary {
-  title: string;
-  chapters: LectureChapter[];
+  summary: string;
+  keyMoments: { time: string; label: string }[];
   flashcards: { front: string; back: string }[];
+  smartNotes: string[];
+  quiz: { question: string; options: string[]; answer: string }[];
 }
 
 export interface CampusMapResponse {
@@ -239,4 +234,30 @@ export interface Poll {
     options: { label: string; votes: number }[];
     totalVotes: number;
     isActive: boolean;
+}
+
+export interface CareerMilestone {
+  title: string;
+  description: string;
+  duration: string;
+  status: 'pending' | 'in-progress' | 'completed';
+}
+
+export interface CourseRecommendation {
+  id: string;
+  title: string;
+  provider: string;
+  gapSkill: string;
+  difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
+  matchReason: string;
+  courseUrl: string;
+}
+
+export interface JobMatch {
+  id: string;
+  role: string;
+  company: string;
+  matchScore: number;
+  type: 'Internship' | 'Junior' | 'Freelance';
+  tags: string[];
 }

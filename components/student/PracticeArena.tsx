@@ -1,4 +1,3 @@
-
 import React, { useState, useContext, useRef, useEffect } from 'react';
 import { QuizQuestion, Concept, MultimodalResult, ConfusionAnalysis, ExplanationMode } from '../../types';
 import { GeminiService } from '../../services/geminiService';
@@ -6,7 +5,6 @@ import { CameraService } from '../../services/cameraService';
 import { DatabaseService } from '../../services/databaseService';
 import { HierarchyContext } from '../../App';
 
-const TOTAL_QUESTIONS = 10;
 const SNAPSHOT_INTERVAL = 10000; // Requirement: 10 seconds
 
 const PracticeArena = () => {
@@ -17,6 +15,8 @@ const PracticeArena = () => {
   const [topic, setTopic] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   
+  // Dynamic Session Length
+  const [totalQuestions, setTotalQuestions] = useState(10);
   const [sessionStep, setSessionStep] = useState(0); 
   const [sessionScore, setSessionScore] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -48,12 +48,11 @@ const PracticeArena = () => {
 
   // Requirement: Periodic snapshots every 10 seconds for proctoring evidence
   useEffect(() => {
-      if (trackingActive && sessionStep >= 1 && sessionStep <= TOTAL_QUESTIONS && !isSubmitted) {
+      if (trackingActive && sessionStep >= 1 && sessionStep <= totalQuestions && !isSubmitted) {
           snapshotIntervalRef.current = setInterval(async () => {
               if (videoRef.current) {
                   const base64 = CameraService.captureFrame(videoRef.current);
                   if (base64) {
-                      // Associating with userId, session mode, step, and current timestamp (handled in DB service)
                       await DatabaseService.saveSessionSnapshot(currentUserId, base64, mode, sessionStep);
                       console.log(`[Proctoring] Evidence captured at step ${sessionStep}`);
                   }
@@ -63,7 +62,7 @@ const PracticeArena = () => {
           if (snapshotIntervalRef.current) clearInterval(snapshotIntervalRef.current);
       }
       return () => { if (snapshotIntervalRef.current) clearInterval(snapshotIntervalRef.current); };
-  }, [trackingActive, sessionStep, isSubmitted, currentUserId, mode]);
+  }, [trackingActive, sessionStep, isSubmitted, currentUserId, mode, totalQuestions]);
 
   useEffect(() => {
     const runAnalysisCycle = async () => {
@@ -131,7 +130,6 @@ const PracticeArena = () => {
     setSelectedOptionIndex(null);
     setIsSubmitted(false);
     
-    // speed enhancement: direct call using optimized flash model
     const q = await GeminiService.generateQuiz(contextTopic, difficulty);
     
     if (q === "QUOTA_EXCEEDED") {
@@ -183,13 +181,12 @@ const PracticeArena = () => {
   };
 
   const handleNextQuestion = () => {
-      if (sessionStep >= TOTAL_QUESTIONS) { 
-        setSessionStep(TOTAL_QUESTIONS + 1); 
+      if (sessionStep >= totalQuestions) { 
+        setSessionStep(totalQuestions + 1); 
         setQuestion(null); 
       }
       else {
           setSessionStep(s => s + 1);
-          // Reset multimodal state
           setActiveExplanation(null);
           setMultimodalContent(null);
           
@@ -242,6 +239,39 @@ const PracticeArena = () => {
                        <button onClick={() => setMode('curriculum')} className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${mode === 'curriculum' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}>Curriculum</button>
                        <button onClick={() => setMode('discovery')} className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${mode === 'discovery' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}>Discovery</button>
                        <button onClick={() => setMode('exam')} className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${mode === 'exam' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}>Lockdown</button>
+                   </div>
+               </div>
+
+               {/* Global Session Config (Visible for all modes) */}
+               <div className="bg-white/40 backdrop-blur-md rounded-[32px] p-8 border border-white/50 shadow-sm">
+                   <div className="flex flex-col md:flex-row justify-between items-center gap-8">
+                        <div className="flex-1 w-full space-y-4">
+                            <div className="flex justify-between items-end">
+                                <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest ml-1">Session Depth (Questions)</label>
+                                <span className="text-2xl font-black text-indigo-600 bg-indigo-50 px-4 py-1 rounded-xl border border-indigo-100">{totalQuestions}</span>
+                            </div>
+                            <input 
+                                type="range" 
+                                min="1" 
+                                max="20" 
+                                value={totalQuestions} 
+                                onChange={e => setTotalQuestions(Number(e.target.value))}
+                                className="w-full h-2 bg-indigo-100 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                            />
+                            <div className="flex justify-between text-[10px] font-bold text-slate-400 px-1">
+                                <span>Short Burst (1)</span>
+                                <span>Marathon (20)</span>
+                            </div>
+                        </div>
+                        <div className="w-full md:w-px h-px md:h-20 bg-slate-200"></div>
+                        <div className="flex-1 text-center md:text-left">
+                            <h4 className="text-sm font-bold text-slate-700 mb-1">Adaptive Load Balancer</h4>
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                                {totalQuestions <= 5 ? "Ideal for rapid recall and daily reinforcement." : 
+                                 totalQuestions <= 12 ? "Standard mastery session for core competency." : 
+                                 "Deep immersion. Best for exam preparation and high-intensity learning."}
+                            </p>
+                        </div>
                    </div>
                </div>
 
@@ -300,13 +330,13 @@ const PracticeArena = () => {
                    </div>
                )}
            </div>
-       ) : sessionStep <= TOTAL_QUESTIONS ? (
+       ) : sessionStep <= totalQuestions ? (
            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 min-h-[700px]">
                <div className="lg:col-span-8 bg-white rounded-[40px] p-8 md:p-12 shadow-sm border border-slate-100 flex flex-col relative overflow-visible">
                    <div className="flex justify-between items-start mb-8 relative z-10">
                        <div className="space-y-4">
                             <div className="flex items-center gap-4">
-                                <span className="text-[10px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-600 px-4 py-2 rounded-full border border-indigo-100">Task {sessionStep} / {TOTAL_QUESTIONS}</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-600 px-4 py-2 rounded-full border border-indigo-100">Task {sessionStep} / {totalQuestions}</span>
                                 <span className="text-[10px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 px-4 py-2 rounded-full border border-emerald-100">Score: {sessionScore}</span>
                                 {trackingActive ? (
                                     <span className="text-[10px] font-black uppercase tracking-widest bg-rose-50 text-rose-600 px-4 py-2 rounded-full border border-rose-100 animate-pulse">📷 PROCTORING ACTIVE</span>
@@ -349,12 +379,10 @@ const PracticeArena = () => {
 
                            {isSubmitted && (
                                <div className="animate-fade-in-up space-y-6 pt-6 border-t-2 border-slate-50">
-                                   {/* Result Status */}
                                    <div className={`p-6 rounded-[32px] text-center border-2 ${selectedOptionIndex === question.correctIndex ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
                                        <div className="text-4xl mb-2">{selectedOptionIndex === question.correctIndex ? '✨ Correct' : '❌ Incorrect'}</div>
                                    </div>
 
-                                   {/* Interactive Choice Hub */}
                                    {!activeExplanation ? (
                                        <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-xl text-center space-y-6">
                                            <div>
@@ -396,7 +424,6 @@ const PracticeArena = () => {
                                                </div>
                                            ) : multimodalContent ? (
                                                <div className="space-y-6">
-                                                   {/* Dynamic Content Rendering based on Mode */}
                                                    {activeExplanation === 'flowchart' && multimodalContent.steps && (
                                                        <div className="bg-white/10 rounded-2xl p-6 backdrop-blur-sm border border-white/10">
                                                            {multimodalContent.steps.map((step, idx) => (
@@ -472,7 +499,6 @@ const PracticeArena = () => {
                    <div className="bg-slate-900 rounded-[40px] p-10 text-white flex flex-col shadow-2xl relative overflow-hidden flex-1 border border-slate-800">
                        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400 mb-8">Neural Feed</h3>
                        <div className="flex-1 flex flex-col items-center justify-center">
-                           {/* Requirement: Class student-confusion-index for display and analysis hook */}
                            <div className="student-confusion-index text-center w-full">
                                <div className="text-7xl font-black mb-1 text-transparent bg-clip-text bg-gradient-to-br from-indigo-400 to-purple-400 transition-all duration-[2s]">
                                    {isSubmitted ? '---' : (confusionData.confusionScore || 0) + '%'}
@@ -495,27 +521,8 @@ const PracticeArena = () => {
                                                "{confusionData.summary || 'Analyzing gaze, posture, and facial tension for cognitive mapping...'}"
                                            </p>
                                        </div>
-                                       
-                                       <div className="grid grid-cols-2 gap-3 pt-4 border-t border-white/5">
-                                           <div className="text-[8px] font-black text-slate-600 uppercase text-left">Gaze Focus</div>
-                                           <div className="h-1 bg-white/5 rounded-full overflow-hidden mt-1.5"><div className="h-full bg-indigo-500/40" style={{width: '85%'}}></div></div>
-                                           <div className="text-[8px] font-black text-slate-600 uppercase text-left">Head Tilt</div>
-                                           <div className="h-1 bg-white/5 rounded-full overflow-hidden mt-1.5"><div className="h-full bg-purple-500/40" style={{width: '60%'}}></div></div>
-                                           <div className="text-[8px] font-black text-slate-600 uppercase text-left">Postural Stability</div>
-                                           <div className="h-1 bg-white/5 rounded-full overflow-hidden mt-1.5"><div className="h-full bg-blue-500/40" style={{width: '92%'}}></div></div>
-                                       </div>
                                    </div>
                                )}
-                           </div>
-                           
-                           <div className="mt-12 w-full space-y-4">
-                               <div className="flex items-center justify-between text-[8px] font-bold text-slate-500 uppercase tracking-widest">
-                                   <span>Identity Integrity</span>
-                                   <span className="text-emerald-500">OPTIMAL</span>
-                               </div>
-                               <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                                   <div className="h-full bg-emerald-500" style={{width: '98%'}}></div>
-                               </div>
                            </div>
                        </div>
                    </div>
@@ -527,7 +534,7 @@ const PracticeArena = () => {
                 <h2 className="text-6xl font-black text-slate-800 tracking-tighter">Neural Sync Complete</h2>
                 <div className="flex justify-center gap-16 py-12">
                     <div className="text-center">
-                        <div className="text-6xl font-black text-indigo-600">{Math.round((sessionScore/TOTAL_QUESTIONS)*100)}%</div>
+                        <div className="text-6xl font-black text-indigo-600">{Math.round((sessionScore/totalQuestions)*100)}%</div>
                         <div className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mt-3">Precision</div>
                     </div>
                     <div className="w-px h-20 bg-slate-100" />
