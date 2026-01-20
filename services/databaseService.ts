@@ -1,4 +1,3 @@
-
 import { supabase } from "./supabaseClient";
 import { Task, PeerReview, MoodEntry, EventPlan, Poll } from "../types";
 
@@ -7,11 +6,11 @@ export const DatabaseService = {
     async ping(): Promise<boolean> {
         try {
             if (!supabase) return false;
-            const { data, error } = await supabase.from('profiles').select('id').limit(1);
-            if (error) throw error;
+            // Test if profiles table exists (the core of the schema)
+            const { error } = await supabase.from('profiles').select('id').limit(1);
+            if (error) return false;
             return true;
         } catch (e) {
-            console.error("Database connection check failed:", e);
             return false;
         }
     },
@@ -20,11 +19,7 @@ export const DatabaseService = {
     async getUserStats(userId: string): Promise<{ xp: number; level: number }> {
         const localKey = `amep_stats_${userId}`;
         try {
-            if (!supabase) {
-                const saved = localStorage.getItem(localKey);
-                return saved ? JSON.parse(saved) : { xp: 0, level: 1 };
-            }
-
+            if (!supabase) throw new Error("Offline");
             const { data, error } = await supabase
                 .from('amep_user_stats')
                 .select('xp, level')
@@ -57,42 +52,14 @@ export const DatabaseService = {
                     updated_at: new Date().toISOString()
                 }, { onConflict: 'user_id' });
         } catch (e) {
-            console.warn("Stats persistence failed.");
-        }
-    },
-
-    // --- Assignments Management ---
-    async getAssignments(): Promise<any[]> {
-        try {
-            if (!supabase) return [];
-            const { data, error } = await supabase.from('amep_assignments').select('*');
-            if (error) throw error;
-            return data || [];
-        } catch (e) {
-            return [];
-        }
-    },
-
-    async syncAssignments(teacherId: string, studentIds: string[]) {
-        try {
-            if (!supabase) return;
-            // Clear existing for this teacher
-            await supabase.from('amep_assignments').delete().eq('teacher_id', teacherId);
-            // Bulk insert new
-            if (studentIds.length > 0) {
-                const inserts = studentIds.map(sid => ({ teacher_id: teacherId, student_id: sid }));
-                await supabase.from('amep_assignments').insert(inserts);
-            }
-        } catch (e) {
-            console.error("Assignment sync failed:", e);
+            console.warn("Stats sync deferred.");
         }
     },
 
     // --- Student Performance Ledger Data ---
-    // Requirement: Filter by teacherId if provided to restrict data access
     async getDetailedStudentAnalytics(teacherId?: string): Promise<any[]> {
         try {
-            if (!supabase) throw new Error("Offline");
+            if (!supabase) return [];
 
             let assignedStudentIds: string[] | null = null;
             if (teacherId) {
@@ -101,47 +68,32 @@ export const DatabaseService = {
                     .select('student_id')
                     .eq('teacher_id', teacherId);
                 assignedStudentIds = (assignments || []).map(a => a.student_id);
-                // If the teacher has zero assignments, they see zero students (strict requirement)
                 if (assignedStudentIds.length === 0) return [];
             }
 
-            // 1. Fetch Profiles
             let query = supabase.from('profiles').select('id, full_name, email').eq('role', 'Student');
-            if (assignedStudentIds) {
-                query = query.in('id', assignedStudentIds);
-            }
+            if (assignedStudentIds) query = query.in('id', assignedStudentIds);
             
-            const { data: profiles, error: pError } = await query;
-            if (pError) throw pError;
+            const { data: profiles, error } = await query;
+            if (error) throw error;
 
-            // 2. Fetch Mastery
             const { data: mastery } = await supabase.from('amep_mastery').select('*');
-            
-            // 3. Fetch Recent Confusion Logs
-            const { data: logs } = await supabase
-                .from('amep_proctoring_logs')
-                .select('*')
-                .order('created_at', { ascending: false });
+            const { data: logs } = await supabase.from('amep_proctoring_logs').select('*').order('created_at', { ascending: false });
 
             return (profiles || []).map(p => {
                 const studentMastery = (mastery || []).filter(m => m.user_id === p.id);
                 const recentLog = (logs || []).find(l => l.user_id === p.id && l.report_data?.confusionScore !== undefined);
-                
                 return {
                     id: p.id,
                     name: p.full_name,
-                    email: p.email || `${p.full_name.toLowerCase().replace(' ', '.')}@amep-edu.org`,
+                    email: p.email || `${p.full_name.toLowerCase().replace(' ', '.')}@amep.edu`,
                     confusionIndex: recentLog?.report_data?.confusionScore ?? 0,
                     mood: recentLog?.report_data?.mood || 'Stable',
-                    mastery: studentMastery.map(m => ({
-                        subjectId: m.subject_id,
-                        score: m.score
-                    })),
+                    mastery: studentMastery.map(m => ({ subjectId: m.subject_id, score: m.score })),
                     lastActive: recentLog?.created_at || new Date().toISOString()
                 };
             });
         } catch (e) {
-            // Mock behavior for Demo if offline
             return [];
         }
     },
@@ -153,9 +105,7 @@ export const DatabaseService = {
             const { data, error } = await supabase.from('amep_tasks').select('*').eq('user_id', userId);
             if (error) throw error;
             return data || [];
-        } catch (error) {
-            return [];
-        }
+        } catch (error) { return []; }
     },
 
     async upsertTask(userId: string, task: Task) {
@@ -170,9 +120,7 @@ export const DatabaseService = {
                 deadline: task.deadline, 
                 source: task.source 
             });
-        } catch (error) {
-            console.warn("Task sync failed.");
-        }
+        } catch (error) { console.warn("Task sync failed."); }
     },
 
     // --- Mastery ---
@@ -182,9 +130,7 @@ export const DatabaseService = {
             const { data, error } = await supabase.from('amep_mastery').select('subject_id, score').eq('user_id', userId);
             if (error) throw error;
             return (data || []).reduce((acc, curr) => ({ ...acc, [curr.subject_id]: curr.score }), {});
-        } catch (error) {
-             return {};
-        }
+        } catch (error) { return {}; }
     },
 
     async updateMasteryScore(userId: string, subjectId: string, score: number) {
@@ -196,9 +142,7 @@ export const DatabaseService = {
                 score: score,
                 last_updated: new Date().toISOString()
             }, { onConflict: 'user_id,subject_id' });
-        } catch (error) {
-            console.warn("Mastery sync failed.");
-        }
+        } catch (error) { console.warn("Mastery sync failed."); }
     },
 
     // --- Logging & Sessions ---
@@ -211,9 +155,7 @@ export const DatabaseService = {
                 report_data: reportData,
                 created_at: new Date().toISOString()
             });
-        } catch (e) {
-            console.warn("Log failed.");
-        }
+        } catch (e) { console.warn("Log deferred."); }
     },
 
     async saveSessionSnapshot(userId: string, base64Image: string, sessionMode: string, step: number) {
@@ -225,131 +167,86 @@ export const DatabaseService = {
                 report_data: { sessionMode, step, snapshot: base64Image, timestamp: Date.now(), event: 'PERIODIC_10S_CHECK' },
                 created_at: new Date().toISOString()
             });
-        } catch (e) {
-            console.error("Proctoring evidence storage failed:", e);
-        }
+        } catch (e) { console.error("Evidence storage failed:", e); }
     },
 
     async getRecentProctoringLogs(teacherId?: string): Promise<any[]> {
         try {
             if (!supabase) return [];
-            
             let assignedStudentIds: string[] | null = null;
             if (teacherId) {
                 const { data: assignments } = await supabase.from('amep_assignments').select('student_id').eq('teacher_id', teacherId);
                 assignedStudentIds = (assignments || []).map(a => a.student_id);
-                if (assignedStudentIds.length === 0) return [];
             }
 
             let query = supabase.from('amep_proctoring_logs').select('*').order('created_at', { ascending: false }).limit(50);
-            if (assignedStudentIds) {
-                query = query.in('user_id', assignedStudentIds);
-            }
+            if (assignedStudentIds) query = query.in('user_id', assignedStudentIds);
 
             const { data, error } = await query;
             if (error) throw error;
-            return (data || []).map(log => ({
-                ...log.report_data,
-                id: log.id,
-                created_at: log.created_at,
-                mode: log.mode,
-                studentId: log.user_id
-            }));
-        } catch (e) {
-             return [];
-        }
+            return (data || []).map(log => ({ ...log.report_data, id: log.id, created_at: log.created_at, mode: log.mode, studentId: log.user_id }));
+        } catch (e) { return []; }
     },
 
     // --- Interactive Polls ---
     async createPoll(poll: Poll) {
         try {
             if (!supabase) return;
-            await supabase.from('amep_polls').insert({
-                id: poll.id,
-                teacher_id: 'T1',
-                question: poll.question,
-                options: poll.options,
-                is_active: poll.isActive,
-                created_at: new Date().toISOString()
-            });
-        } catch (e) {
-             console.warn("Poll failed.");
-        }
+            await supabase.from('amep_polls').insert({ id: poll.id, question: poll.question, options: poll.options, is_active: poll.isActive, created_at: new Date().toISOString() });
+        } catch (e) { console.warn("Poll deferred."); }
     },
 
     async getActivePoll(): Promise<Poll | null> {
         try {
             if (!supabase) return null;
-            const { data, error } = await supabase
-                .from('amep_polls')
-                .select('*')
-                .eq('is_active', true)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .single();
+            const { data, error } = await supabase.from('amep_polls').select('*').eq('is_active', true).order('created_at', { ascending: false }).limit(1).single();
             if (error || !data) return null;
-            return {
-                id: data.id,
-                question: data.question,
-                options: data.options,
-                totalVotes: data.options.reduce((acc: number, o: any) => acc + o.votes, 0),
-                isActive: data.is_active
-            };
-        } catch (e) {
-             return null;
-        }
+            return { id: data.id, question: data.question, options: data.options, totalVotes: data.options.reduce((acc: number, o: any) => acc + o.votes, 0), isActive: data.is_active };
+        } catch (e) { return null; }
     },
 
-    // --- Event Planning (Fixed missing methods) ---
-    // Fix: Added saveEventPlan to resolve error in EventHub.tsx
+    // --- Event Planning ---
     async saveEventPlan(userId: string, plan: EventPlan, prompt: string) {
         try {
             if (!supabase) return;
-            await supabase.from('amep_event_plans').insert({
-                user_id: userId,
-                prompt: prompt,
-                checklist: plan.checklist,
-                email_draft: plan.emailDraft,
-                budget_estimate: plan.budgetEstimate,
-                created_at: new Date().toISOString()
-            });
-        } catch (e) {
-            console.error("Event plan storage failed:", e);
-        }
+            await supabase.from('amep_event_plans').insert({ user_id: userId, prompt: prompt, checklist: plan.checklist, email_draft: plan.emailDraft, budget_estimate: plan.budgetEstimate, created_at: new Date().toISOString() });
+        } catch (e) { console.error("Event storage failed:", e); }
     },
 
-    // --- Wellness Entries (Fixed missing methods) ---
-    // Fix: Added saveWellnessEntry to resolve error in WellnessWing.tsx
+    // --- Wellness Entries ---
     async saveWellnessEntry(userId: string, entry: MoodEntry) {
         try {
             if (!supabase) return;
-            await supabase.from('amep_wellness_entries').insert({
-                user_id: userId,
-                transcription: entry.transcription,
-                sentiment: entry.sentiment,
-                score: entry.score,
-                advice: entry.advice,
-                created_at: new Date().toISOString()
-            });
-        } catch (e) {
-            console.error("Wellness entry storage failed:", e);
-        }
+            await supabase.from('amep_wellness_entries').insert({ user_id: userId, transcription: entry.transcription, sentiment: entry.sentiment, score: entry.score, advice: entry.advice, created_at: new Date().toISOString() });
+        } catch (e) { console.error("Wellness storage failed:", e); }
     },
 
-    // Fix: Added getWellnessEntries to resolve error in WellnessWing.tsx
     async getWellnessEntries(userId: string): Promise<any[]> {
         try {
             if (!supabase) return [];
-            const { data, error } = await supabase
-                .from('amep_wellness_entries')
-                .select('*')
-                .eq('user_id', userId)
-                .order('created_at', { ascending: false });
+            const { data, error } = await supabase.from('amep_wellness_entries').select('*').eq('user_id', userId).order('created_at', { ascending: false });
             if (error) throw error;
             return data || [];
-        } catch (e) {
-            console.error("Failed to fetch wellness entries:", e);
-            return [];
-        }
+        } catch (e) { return []; }
+    },
+
+    async getAssignments(): Promise<any[]> {
+        try {
+            if (!supabase) return [];
+            const { data, error } = await supabase.from('amep_assignments').select('*');
+            if (error) throw error;
+            return data || [];
+        } catch (e) { return []; }
+    },
+
+    async syncAssignments(teacherId: string, studentIds: string[]) {
+        try {
+            if (!supabase) return;
+            await supabase.from('amep_assignments').delete().eq('teacher_id', teacherId);
+            if (studentIds.length > 0) {
+                const inserts = studentIds.map(sid => ({ teacher_id: teacherId, student_id: sid }));
+                await supabase.from('amep_assignments').insert(inserts);
+            }
+        } catch (e) { console.error("Assignment sync failed:", e); }
     }
 };

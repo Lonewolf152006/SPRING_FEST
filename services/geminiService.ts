@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { QuizQuestion, ConfusionAnalysis, ExamProctoringAnalysis, PeerReviewAnalysis, ChatMessage, ClassInsights, LessonPlan, AdminReport, InterviewAnalysis, LectureSummary, CampusMapResponse, ResumeFeedback, CalendarEvent, Task, EventPlan, EventPost, MoodEntry, ScholarshipMatch, SafetyAlert, ProjectTemplate, ExplanationMode, MultimodalResult, PeerReview, CareerMilestone, CourseRecommendation, JobMatch } from "../types";
 import { DatabaseService } from "./databaseService";
@@ -296,24 +295,24 @@ export const GeminiService = {
         contents: {
           parts: [
             { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-            { text: "Analyze the student's visible biometric and behavioral state." }
+            { text: "Perform detailed biometric analysis of student's visual and physical behavior." }
           ]
         },
         config: {
-          systemInstruction: `You are an educational vision AI. Analyze the student's confusion level (0-100) and cognitive state by processing their:
-          - Eye Gaze: Direction and persistence
-          - Head Orientation and Tilt: Position and angle relative to the screen
-          - Body Posture: Leaning, slumping, or upright engagement
-          - Facial Tension: Muscle activation in the jaw or forehead
-          - Eyebrow Movement: Furrowing or lifting indicating load or surprise
-          - Eye Focus: Pupil orientation and visual convergence
+          systemInstruction: `You are an advanced biometric behavioral analyst. Analyze the provided frame for the student's cognitive state. Specifically evaluate:
+          - Eye Gaze: Direction, dwell time, and shifting patterns.
+          - Head Orientation & Tilt: Rotation and vertical angle relative to screen.
+          - Posture: Leaning, slumping, or rigid engagement.
+          - Facial Tension: Micro-expressions and muscle activation in the jaw/forehead.
+          - Eyebrow Movement: Signs of concentration, doubt, or surprise.
+          - Eye Focus: Pupil dilation and visual convergence depth.
           
-          Provide a detailed report in JSON:
-          - confusionScore: integer 0-100
-          - summary: short descriptive sentence summarizing student's mood based on the specific biometric data above
-          - mood: string enum ['focused', 'confused', 'distracted', 'engaged', 'frustrated', 'bored']
+          Based on these metrics, output a JSON object:
+          - confusionScore: (0-100) representing cognitive load and lack of understanding.
+          - summary: A descriptive single sentence explaining the student's mood based on specific visual cues (e.g., "Student shows increased facial tension and frequent gaze shifting, indicating frustration.").
+          - mood: Choose from ['focused', 'confused', 'distracted', 'engaged', 'frustrated', 'bored'].
           
-          Output JSON only.`,
+          Output strictly JSON.`,
           thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
@@ -330,7 +329,7 @@ export const GeminiService = {
       return JSON.parse(response.text || "{}");
     } catch (e) {
       handleApiError(e);
-      return { confusionScore: 0, summary: "Tracking paused.", mood: "focused" };
+      return { confusionScore: 0, summary: "Biometric link interrupted.", mood: "focused" };
     }
   },
 

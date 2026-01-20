@@ -1,6 +1,6 @@
 {
   "name": "ZYNC - Adaptive Mastery Platform",
-  "description": "A futuristic EdTech solution combining adaptive learning, engagement tracking via AI vision, and project-based research tools.",
+  "description": "The operating system for future Learning Potential Innovators. Autonomous mastery tracking, neural proctoring, and project-based growth.",
   "requestFramePermissions": [
     "microphone",
     "geolocation",

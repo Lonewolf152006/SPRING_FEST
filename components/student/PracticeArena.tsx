@@ -210,6 +210,26 @@ const PracticeArena = () => {
       if (snapshotIntervalRef.current) clearInterval(snapshotIntervalRef.current);
   };
 
+  // Visual Helpers for Confusion Index
+  const score = confusionData.confusionScore || 0;
+  const getConfusionColor = () => {
+    if (score < 30) return '#10b981'; // emerald
+    if (score < 60) return '#f59e0b'; // amber
+    return '#f43f5e'; // rose
+  };
+
+  const getConfusionTextClass = () => {
+    if (score < 30) return 'text-emerald-400';
+    if (score < 60) return 'text-amber-400';
+    return 'text-rose-400';
+  };
+
+  const getConfusionGlowClass = () => {
+    if (score < 30) return 'shadow-[0_0_40px_rgba(16,185,129,0.2)]';
+    if (score < 60) return 'shadow-[0_0_40px_rgba(245,158,11,0.2)]';
+    return 'shadow-[0_0_40px_rgba(244,63,94,0.3)]';
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-10 animate-fade-in-up pb-10 relative">
        <video ref={videoRef} className="hidden" muted playsInline />
@@ -322,7 +342,7 @@ const PracticeArena = () => {
                            <div className="w-20 h-20 bg-rose-500/20 rounded-full flex items-center justify-center mx-auto text-4xl border border-rose-500/20">🛡️</div>
                            <h3 className="text-4xl font-black tracking-tight">Lockdown Session</h3>
                            <p className="text-slate-400 max-w-md mx-auto text-lg">Continuous 10s biometric snapshots and proctoring enabled.</p>
-                           <div className="max-w-sm mx-auto space-y-4 pt-6">
+                           <div className="max-sm mx-auto space-y-4 pt-6">
                                <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Examination Subject..." className="w-full bg-slate-800 border border-white/10 rounded-2xl px-6 py-5 outline-none font-bold text-lg text-white"/>
                                <button onClick={() => handleStartSession(() => { setSessionStep(1); setSessionScore(0); fetchQuestion(topic, 'hard'); })} disabled={!topic} className="w-full py-5 bg-rose-600 hover:bg-rose-500 rounded-2xl font-black text-xl active:scale-95 transition-all">Authorize Protocol</button>
                            </div>
@@ -499,16 +519,50 @@ const PracticeArena = () => {
                    <div className="bg-slate-900 rounded-[40px] p-10 text-white flex flex-col shadow-2xl relative overflow-hidden flex-1 border border-slate-800">
                        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400 mb-8">Neural Feed</h3>
                        <div className="flex-1 flex flex-col items-center justify-center">
-                           <div className="student-confusion-index text-center w-full">
-                               <div className="text-7xl font-black mb-1 text-transparent bg-clip-text bg-gradient-to-br from-indigo-400 to-purple-400 transition-all duration-[2s]">
-                                   {isSubmitted ? '---' : (confusionData.confusionScore || 0) + '%'}
+                           <div className="student-confusion-index text-center w-full flex flex-col items-center">
+                               
+                               {/* Enhanced Dynamic Visual Representation */}
+                               <div className="relative mb-12 flex items-center justify-center">
+                                   {/* Circular Progress Path */}
+                                   <svg className="w-48 h-48 -rotate-90">
+                                       <circle cx="96" cy="96" r="88" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+                                       <circle 
+                                            cx="96" cy="96" r="88" 
+                                            fill="none" 
+                                            stroke={getConfusionColor()} 
+                                            strokeWidth="8" 
+                                            strokeDasharray="552.92" 
+                                            strokeDashoffset={isSubmitted ? 552.92 : 552.92 - (552.92 * score) / 100} 
+                                            strokeLinecap="round"
+                                            className="transition-all duration-1000 ease-out"
+                                       />
+                                   </svg>
+
+                                   {/* Neural Pulse Effect */}
+                                   {!isSubmitted && (
+                                       <div 
+                                            className={`absolute inset-0 rounded-full border-2 border-dashed opacity-20 animate-spin-slow transition-colors duration-1000`} 
+                                            style={{ borderColor: getConfusionColor(), animationDuration: `${Math.max(2, 10 - (score / 10))}s` }}
+                                       />
+                                   )}
+
+                                   {/* Score Display */}
+                                   <div className={`absolute inset-0 flex flex-col items-center justify-center rounded-full transition-all duration-1000 ${getConfusionGlowClass()}`}>
+                                       <div className={`text-6xl font-black tracking-tighter transition-colors duration-1000 ${getConfusionTextClass()}`}>
+                                           {isSubmitted ? '---' : score + '%'}
+                                       </div>
+                                       <div className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em] mt-1">
+                                           Load Metric
+                                       </div>
+                                   </div>
                                </div>
-                               <div className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mt-2 mb-8">
+
+                               <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-8">
                                    {isSubmitted ? 'FEED CAPTURED' : 'Biometric Confusion Index'}
                                </div>
 
                                {!isSubmitted && (
-                                   <div className="space-y-6 animate-fade-in">
+                                   <div className="space-y-6 animate-fade-in w-full">
                                        <div className="bg-white/5 border border-white/5 p-5 rounded-3xl backdrop-blur-sm">
                                            <div className={`text-[10px] font-black uppercase tracking-[0.2em] mb-2 flex items-center justify-center gap-2 ${
                                                confusionData.mood === 'focused' || confusionData.mood === 'engaged' ? 'text-emerald-400' : 
@@ -546,6 +600,16 @@ const PracticeArena = () => {
                 <button onClick={resetSession} className="px-20 py-6 bg-indigo-600 hover:bg-indigo-500 text-white rounded-[32px] font-black text-xl shadow-2xl shadow-indigo-600/30 active:scale-95 transition-all">Return to Terminal</button>
            </div>
        )}
+
+       <style>{`
+            @keyframes spin-slow {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            .animate-spin-slow {
+                animation: spin-slow 8s linear infinite;
+            }
+       `}</style>
     </div>
   );
 };

@@ -1,7 +1,11 @@
--- AMEP (Adaptive Mastery & Engagement Platform) Database Schema
--- Run this in the Supabase SQL Editor
+-- ZYNC AMEP: Institutional OS Schema
+-- EXECUTION: Run this in the Supabase SQL Editor (Full Overwrite)
 
--- 1. PROFILES: Links to Supabase Auth
+-- 0. Cleanup (Optional, but makes redeployment "Fast")
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+
+-- 1. Identity Infrastructure
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
   full_name TEXT,
@@ -10,14 +14,14 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. CLASSES: Management of institutional segments
+-- 2. Institutional Segments
 CREATE TABLE IF NOT EXISTS public.amep_classes (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. USER STATS: XP and Leveling system
+-- 3. Gamification Engine (XP/Prestige)
 CREATE TABLE IF NOT EXISTS public.amep_user_stats (
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE PRIMARY KEY,
   xp INTEGER DEFAULT 0,
@@ -25,7 +29,7 @@ CREATE TABLE IF NOT EXISTS public.amep_user_stats (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. ASSIGNMENTS: Linking Teachers to Students for Roster Isolation
+-- 4. Roster Isolation Logic (Teacher-Student Link)
 CREATE TABLE IF NOT EXISTS public.amep_assignments (
   id BIGSERIAL PRIMARY KEY,
   teacher_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -34,7 +38,7 @@ CREATE TABLE IF NOT EXISTS public.amep_assignments (
   UNIQUE(teacher_id, student_id)
 );
 
--- 5. TASKS: Smart Planner and Kanban data
+-- 5. Productivity & Scheduling
 CREATE TABLE IF NOT EXISTS public.amep_tasks (
   id TEXT PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -46,7 +50,7 @@ CREATE TABLE IF NOT EXISTS public.amep_tasks (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 6. MASTERY: Skill Tree and Subject progress
+-- 6. Academic Mastery Tracking
 CREATE TABLE IF NOT EXISTS public.amep_mastery (
   id BIGSERIAL PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -56,7 +60,7 @@ CREATE TABLE IF NOT EXISTS public.amep_mastery (
   UNIQUE(user_id, subject_id)
 );
 
--- 7. PROCTORING LOGS: Biometric snapshots and Confusion data
+-- 7. Neural Proctoring & Biometric Evidence
 CREATE TABLE IF NOT EXISTS public.amep_proctoring_logs (
   id BIGSERIAL PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -65,17 +69,17 @@ CREATE TABLE IF NOT EXISTS public.amep_proctoring_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 8. POLLS: Live classroom interaction
+-- 8. Classroom Interaction Hub
 CREATE TABLE IF NOT EXISTS public.amep_polls (
   id TEXT PRIMARY KEY,
-  teacher_id TEXT, -- Usually matches profile ID
+  teacher_id TEXT,
   question TEXT NOT NULL,
   options JSONB NOT NULL,
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 9. EVENT PLANS: Event Hub storage
+-- 9. Extracurricular Planner
 CREATE TABLE IF NOT EXISTS public.amep_event_plans (
   id BIGSERIAL PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -86,7 +90,7 @@ CREATE TABLE IF NOT EXISTS public.amep_event_plans (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 10. WELLNESS: Mental health journal entries
+-- 10. Mental Wellness Ledger
 CREATE TABLE IF NOT EXISTS public.amep_wellness_entries (
   id BIGSERIAL PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -98,7 +102,7 @@ CREATE TABLE IF NOT EXISTS public.amep_wellness_entries (
 );
 
 -- ==========================================
--- AUTH TRIGGER: Sync metadata to Profiles
+-- AUTOMATION: Auth Identity Sync Trigger
 -- ==========================================
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -112,7 +116,7 @@ BEGIN
     NEW.email
   );
   
-  -- Initialize stats for the new user
+  -- Auto-Provision Level 1 Stats
   INSERT INTO public.amep_user_stats (user_id, xp, level)
   VALUES (NEW.id, 0, 1);
   
@@ -120,14 +124,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Recreate trigger
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
 -- ==========================================
--- PERMISSIONS: Disable strict RLS for Dev
+-- SEED DATA: For Immediate Testing
+-- ==========================================
+INSERT INTO public.amep_classes (id, name) VALUES ('C1', 'Cohort Alpha - CS'), ('C2', 'Cohort Beta - Engineering') ON CONFLICT DO NOTHING;
+
+-- ==========================================
+-- PERMISSIONS: Global Development Access
 -- ==========================================
 ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.amep_classes DISABLE ROW LEVEL SECURITY;
