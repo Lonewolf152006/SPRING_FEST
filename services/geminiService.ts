@@ -4,7 +4,6 @@ import { QuizQuestion, ConfusionAnalysis, ExamProctoringAnalysis, PeerReviewAnal
 import { DatabaseService } from "./databaseService";
 
 // API key obtained exclusively from process.env.API_KEY as per guidelines.
-// window._ENV_ is a shim provided in index.html for static environments like Netlify.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || (window as any)._ENV_?.API_KEY });
 
 const handleApiError = (e: any) => {
@@ -29,16 +28,14 @@ export const GeminiService = {
 
   async analyzeExamProctoring(base64Image: string): Promise<ExamProctoringAnalysis> {
     try {
-      const dataStr = base64Image || "";
+      const dataStr = (base64Image || "") as string;
       const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: {
           parts: [
             { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-            { 
-              text: `Detect: 1. Face visibility. 2. Attention (0-100). 3. Confusion (0-100). 4. Stress (0-100). 5. Confidence (0-100).` 
-            }
+            { text: `Detect: 1. Face visibility. 2. Attention (0-100). 3. Confusion (0-100). 4. Stress (0-100). 5. Confidence (0-100).` }
           ]
         },
         config: {
@@ -58,7 +55,7 @@ export const GeminiService = {
           }
         }
       });
-      return JSON.parse(response.text || "{}");
+      return JSON.parse((response as any).text || "{}");
     } catch (e) {
       handleApiError(e);
       return { faceDetected: false, attentionScore: 0, confusionScore: 0, stressScore: 0, confidenceScore: 0 };
@@ -73,13 +70,12 @@ export const GeminiService = {
         model: 'gemini-3-flash-preview',
         contents: `Summarize: ${reviewText}`,
         config: {
-          systemInstruction: "You are an expert pedagogical coach. Synthesize peer feedback into a single, constructive, anonymized summary. Max 100 words.",
+          systemInstruction: "You are an expert pedagogical coach. Synthesize peer feedback into a single summary. Max 100 words.",
           thinkingConfig: { thinkingBudget: 0 }
         }
       });
-      return response.text || "Synthesis engine encountered a delay.";
+      return (response as any).text || "Synthesis engine encountered a delay.";
     } catch (e) {
-      if (handleApiError(e) === "QUOTA_EXCEEDED") return "Quota reached. Please wait a moment before distilling insights.";
       return "The Anonymization Engine is currently distilling insights.";
     }
   },
@@ -97,24 +93,20 @@ export const GeminiService = {
             type: Type.OBJECT,
             properties: {
               mode: { type: Type.STRING },
-              content: { type: Type.STRING, description: "Main text content" },
+              content: { type: Type.STRING },
               steps: { type: Type.ARRAY, items: { type: Type.STRING } },
               connections: { 
                 type: Type.ARRAY, 
-                items: { 
-                  type: Type.OBJECT,
-                  properties: { from: { type: Type.STRING }, to: { type: Type.STRING }, relation: { type: Type.STRING } }
-                }
+                items: { type: Type.OBJECT, properties: { from: { type: Type.STRING }, to: { type: Type.STRING }, relation: { type: Type.STRING } } }
               }
             },
             required: ['mode', 'content']
           }
         }
       });
-      
-      return JSON.parse(response.text || "{}");
+      return JSON.parse((response as any).text || "{}");
     } catch (e) {
-      return { mode: mode, content: "Review the core principles of this topic in your textbook." };
+      return { mode: mode, content: "Review core principles in your text." };
     }
   },
 
@@ -128,7 +120,7 @@ export const GeminiService = {
           thinkingConfig: { thinkingBudget: 0 }
         }
       });
-      return response.text || "Focus on reviewing your recent notes.";
+      return (response as any).text || "Focus on reviewing your recent notes.";
     } catch (e) {
       return "Review your core subjects today.";
     }
@@ -139,16 +131,15 @@ export const GeminiService = {
           const chat = ai.chats.create({
               model: 'gemini-3-flash-preview',
               config: { 
-                systemInstruction: `You are Spark, a friendly AI Coach. The student struggles in: ${weakSubjects.join(', ')}. Keep responses under 30 words, encouraging, and emoji-friendly.`,
+                systemInstruction: `Friendly AI Coach. Weaknesses: ${weakSubjects.join(', ')}. Max 30 words.`,
                 thinkingConfig: { thinkingBudget: 0 }
               },
               history: history.slice(0, -1).map(h => ({ role: h.role, parts: [{ text: h.text }] }))
           });
           const result = await chat.sendMessage({ message: history[history.length - 1].text });
-          return result.text || "";
+          return (result as any).text || "";
       } catch (e) {
-          if (handleApiError(e) === "QUOTA_EXCEEDED") return "I'm a bit overwhelmed right now! Give me a minute. 💨";
-          return "I'm having a bit of trouble connecting. Try again! 🌥️";
+          return "I'm having a bit of trouble connecting. Try again!";
       }
   },
 
@@ -156,9 +147,9 @@ export const GeminiService = {
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Create a multiple choice question about: ${topic}. Difficulty: ${difficulty}. Output JSON only.`,
+        contents: `Multiple choice question: ${topic}. Difficulty: ${difficulty}. JSON only.`,
         config: {
-          systemInstruction: `Educational engine. Output JSON only. Fields: question, options, correctIndex, explanation, theory, steps, difficulty.`,
+          systemInstruction: `Educational engine. Output JSON only.`,
           thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
@@ -176,7 +167,7 @@ export const GeminiService = {
           }
         }
       });
-      return JSON.parse(response.text || "{}");
+      return JSON.parse((response as any).text || "{}");
     } catch (e) {
       return handleApiError(e);
     }
@@ -200,7 +191,7 @@ export const GeminiService = {
       return {
         id: Date.now().toString(),
         role: 'model',
-        text: response.text || "I couldn't find information on that.",
+        text: (response as any).text || "I couldn't find info.",
         sources: sources
       };
     } catch (e) {
@@ -210,7 +201,7 @@ export const GeminiService = {
 
   async analyzeClassroomImage(base64Image: string): Promise<ConfusionAnalysis> {
     try {
-      const dataStr = base64Image || "";
+      const dataStr = (base64Image || "") as string;
       const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -229,12 +220,12 @@ export const GeminiService = {
             properties: {
               confusionScore: { type: Type.INTEGER },
               summary: { type: Type.STRING },
-              mood: { type: Type.STRING, enum: ['focused', 'confused', 'distracted', 'engaged', 'frustrated', 'bored'] }
+              mood: { type: Type.STRING }
             }
           }
         }
       });
-      return JSON.parse(response.text || "{}");
+      return JSON.parse((response as any).text || "{}");
     } catch (e) {
       return { confusionScore: 0, summary: "Could not analyze image.", mood: "focused" };
     }
@@ -242,7 +233,7 @@ export const GeminiService = {
 
   async analyzeStudentAttention(base64Image: string): Promise<ConfusionAnalysis> {
     try {
-      const dataStr = base64Image || "";
+      const dataStr = (base64Image || "") as string;
       const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -253,7 +244,7 @@ export const GeminiService = {
           ]
         },
         config: {
-          systemInstruction: `Advanced biometric analyst. Output strictly JSON.`,
+          systemInstruction: `Advanced biometric analyst. JSON only.`,
           thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
@@ -261,15 +252,15 @@ export const GeminiService = {
             properties: {
               confusionScore: { type: Type.INTEGER },
               summary: { type: Type.STRING },
-              mood: { type: Type.STRING, enum: ['focused', 'confused', 'distracted', 'engaged', 'frustrated', 'bored'] }
+              mood: { type: Type.STRING }
             },
             required: ['confusionScore', 'summary', 'mood']
           }
         }
       });
-      return JSON.parse(response.text || "{}");
+      return JSON.parse((response as any).text || "{}");
     } catch (e) {
-      return { confusionScore: 0, summary: "Biometric link interrupted.", mood: "focused" };
+      return { confusionScore: 0, summary: "Link interrupted.", mood: "focused" };
     }
   },
 
@@ -287,7 +278,7 @@ export const GeminiService = {
         model: 'gemini-3-flash-preview',
         contents: `Subject: ${subject}. Grade: ${grade}. Objectives: ${objectives}.`,
         config: {
-          systemInstruction: "Create a professional adaptive lesson plan. Output JSON only.",
+          systemInstruction: "Create adaptive lesson plan. JSON only.",
           thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
@@ -301,7 +292,7 @@ export const GeminiService = {
           }
         }
       });
-      return JSON.parse(response.text || "{}");
+      return JSON.parse((response as any).text || "{}");
     } catch (e) {
       throw e;
     }
@@ -313,7 +304,7 @@ export const GeminiService = {
         model: 'gemini-3-flash-preview', 
         contents: `Analyze: "${reviewText}"`,
         config: {
-            systemInstruction: "Analyze peer review for teamwork and creativity scores (0-100). Output JSON only.",
+            systemInstruction: "Analyze peer review. JSON only.",
             thinkingConfig: { thinkingBudget: 0 },
             responseMimeType: 'application/json',
             responseSchema: {
@@ -326,7 +317,7 @@ export const GeminiService = {
             }
         }
       });
-      return JSON.parse(response.text || "{}");
+      return JSON.parse((response as any).text || "{}");
     } catch (e) {
         return { teamworkScore: 0, creativityScore: 0, feedback: "Feedback analysis unavailable." };
     }
@@ -338,7 +329,7 @@ export const GeminiService = {
               model: 'gemini-3-flash-preview',
               contents: `Stats: ${JSON.stringify(stats)}`,
               config: {
-                  systemInstruction: "Generate an executive report. Output JSON only.",
+                  systemInstruction: "Generate executive report. JSON only.",
                   thinkingConfig: { thinkingBudget: 0 },
                   responseMimeType: 'application/json',
                   responseSchema: {
@@ -355,7 +346,7 @@ export const GeminiService = {
                   }
               }
           });
-          return JSON.parse(response.text || "{}");
+          return JSON.parse((response as any).text || "{}");
       } catch (e) {
           return { institutionHealthPulse: "Unavailable", overallMastery: 0, adoptionRate: 0, studentSatisfaction: 0, teacherAdoption: 0, topDepartment: "N/A", adminConfidenceScore: 0 };
       }
@@ -367,11 +358,11 @@ export const GeminiService = {
             model: 'gemini-3-flash-preview',
             contents: `Stats: ${JSON.stringify(stats)}`,
             config: {
-              systemInstruction: "Write a professional weekly report in Markdown.",
+              systemInstruction: "Write professional report in Markdown.",
               thinkingConfig: { thinkingBudget: 0 }
             }
           });
-          return response.text || "Report generation failed.";
+          return (response as any).text || "Report generation failed.";
       } catch (e) {
           return "Error generating report.";
       }
@@ -385,9 +376,7 @@ export const GeminiService = {
             config: {
                 responseModalities: [Modality.AUDIO],
                 speechConfig: {
-                    voiceConfig: {
-                      prebuiltVoiceConfig: { voiceName: 'Kore' },
-                    },
+                    voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
                 }
             }
         });
@@ -399,7 +388,7 @@ export const GeminiService = {
 
   async transcribeAudio(audioBase64: string, mimeType: string = 'audio/wav'): Promise<string> {
       try {
-          const dataStr = audioBase64 || "";
+          const dataStr = (audioBase64 || "") as string;
           const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
           const response = await ai.models.generateContent({
               model: 'gemini-3-flash-preview',
@@ -411,7 +400,7 @@ export const GeminiService = {
               },
               config: { thinkingConfig: { thinkingBudget: 0 } }
           });
-          return response.text || "";
+          return (response as any).text || "";
       } catch (e) {
           return "";
       }
@@ -421,10 +410,10 @@ export const GeminiService = {
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `Generate a single challenging interview question for a ${role} role. Under 20 words.`,
+            contents: `Interview question for ${role}. Max 20 words.`,
             config: { thinkingConfig: { thinkingBudget: 0 } }
         });
-        return response.text?.trim() || "Tell me about yourself.";
+        return (response as any).text?.trim() || "Tell me about yourself.";
     } catch (e) {
         return "Tell me about a time you worked in a team.";
     }
@@ -432,7 +421,7 @@ export const GeminiService = {
 
   async analyzeInterviewResponse(audioBase64: string, question: string): Promise<InterviewAnalysis> {
     try {
-        const dataStr = audioBase64 || "";
+        const dataStr = (audioBase64 || "") as string;
         const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
@@ -443,7 +432,7 @@ export const GeminiService = {
                 ]
             },
             config: {
-                systemInstruction: "Analyze interview response for hiring probability and feedback. Output JSON only.",
+                systemInstruction: "Analyze interview response. JSON only.",
                 thinkingConfig: { thinkingBudget: 0 },
                 responseMimeType: 'application/json',
                 responseSchema: {
@@ -458,7 +447,7 @@ export const GeminiService = {
                 }
             }
         });
-        return JSON.parse(response.text || "{}");
+        return JSON.parse((response as any).text || "{}");
     } catch (e) {
         return { transcription: "Error processing audio.", confidenceScore: 0, hiringProbability: 0, feedback: "Analysis failed.", keywordsDetected: [] };
     }
@@ -466,14 +455,14 @@ export const GeminiService = {
 
   async analyzeLectureVideo(videoBase64: string, mimeType: string = 'video/mp4'): Promise<LectureSummary> {
       try {
-          const dataStr = videoBase64 || "";
+          const dataStr = (videoBase64 || "") as string;
           const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
           const response = await ai.models.generateContent({
               model: 'gemini-3-flash-preview',
               contents: {
                   parts: [
                       { inlineData: { mimeType: mimeType, data: base64Data } },
-                      { text: "Analyze video lecture. Output structured study data JSON." }
+                      { text: "Analyze video lecture. JSON only." }
                   ]
               },
               config: {
@@ -491,7 +480,7 @@ export const GeminiService = {
                 }
               }
           });
-          return JSON.parse(response.text || "{}");
+          return JSON.parse((response as any).text || "{}");
       } catch (e) {
           return { summary: "Lecture processing failed.", keyMoments: [], flashcards: [], smartNotes: [], quiz: [] };
       }
@@ -517,7 +506,7 @@ export const GeminiService = {
         .filter(Boolean) || [];
 
       return {
-        text: response.text || "Here is what I found.",
+        text: (response as any).text || "Here is what I found.",
         links: links
       };
     } catch (e) {
@@ -527,7 +516,7 @@ export const GeminiService = {
 
   async analyzeWhiteboard(base64Image: string): Promise<string> {
     try {
-      const dataStr = base64Image || "";
+      const dataStr = (base64Image || "") as string;
       const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -539,7 +528,7 @@ export const GeminiService = {
         },
         config: { thinkingConfig: { thinkingBudget: 0 } }
       });
-      return response.text || "No content extracted.";
+      return (response as any).text || "No content extracted.";
     } catch (e) {
       return "Error analyzing whiteboard image.";
     }
@@ -547,7 +536,7 @@ export const GeminiService = {
 
   async reviewResume(input: string, isPdf: boolean = false): Promise<ResumeFeedback> {
     try {
-      const dataStr = input || "";
+      const dataStr = (input || "") as string;
       const cleanedInput = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
       const parts = isPdf 
         ? [{ inlineData: { mimeType: 'application/pdf', data: cleanedInput } }, { text: "Analyze for ATS score." }]
@@ -557,7 +546,7 @@ export const GeminiService = {
         model: 'gemini-3-flash-preview',
         contents: { parts },
         config: {
-          systemInstruction: "Review resume score (0-100). Output JSON only.",
+          systemInstruction: "Review resume score (0-100). JSON only.",
           thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
@@ -570,7 +559,7 @@ export const GeminiService = {
           }
         }
       });
-      return JSON.parse(response.text || "{}");
+      return JSON.parse((response as any).text || "{}");
     } catch (e) {
       return { score: 0, suggestions: [], rewrittenSummary: "Review unavailable." };
     }
@@ -582,11 +571,11 @@ export const GeminiService = {
         model: 'gemini-3-flash-preview',
         contents: `Tasks: ${JSON.stringify(tasks)}. Events: ${JSON.stringify(events)}.`,
         config: {
-          systemInstruction: "Generate a motivating 1-sentence schedule summary. Max 30 words.",
+          systemInstruction: "Generate a motivating schedule summary. Max 30 words.",
           thinkingConfig: { thinkingBudget: 0 }
         }
       });
-      return response.text || "Ready to start the day.";
+      return (response as any).text || "Ready to start the day.";
     } catch (e) {
       return "Have a productive day!";
     }
@@ -598,7 +587,7 @@ export const GeminiService = {
             model: 'gemini-3-flash-preview',
             contents: `Prioritize: ${JSON.stringify(tasks)}`,
              config: {
-                systemInstruction: "Return task list sorted by priority. Output JSON only.",
+                systemInstruction: "Return task list sorted by priority. JSON only.",
                 thinkingConfig: { thinkingBudget: 0 },
                 responseMimeType: 'application/json',
                 responseSchema: {
@@ -617,7 +606,7 @@ export const GeminiService = {
                 }
             }
         });
-        return JSON.parse(response.text || "[]");
+        return JSON.parse((response as any).text || "[]");
     } catch(e) {
         return tasks;
     }
@@ -629,7 +618,7 @@ export const GeminiService = {
             model: 'gemini-3-flash-preview',
             contents: `Sort: ${JSON.stringify(tasks)}`,
              config: {
-                systemInstruction: "Sort tasks by deadline. Output JSON only.",
+                systemInstruction: "Sort tasks by deadline. JSON only.",
                 thinkingConfig: { thinkingBudget: 0 },
                 responseMimeType: 'application/json',
                 responseSchema: {
@@ -648,7 +637,7 @@ export const GeminiService = {
                 }
             }
         });
-        return JSON.parse(response.text || "[]");
+        return JSON.parse((response as any).text || "[]");
     } catch(e) {
         return tasks;
     }
@@ -660,7 +649,7 @@ export const GeminiService = {
         model: 'gemini-3-flash-preview',
         contents: `Task: "${task}". Events: ${JSON.stringify(events)}. Find 1-hour slot.`,
         config: {
-          systemInstruction: "AI calendar assistant. Find optimal time. Output JSON with 'startTime' (ISO) and 'reason'.",
+          systemInstruction: "AI calendar assistant. JSON with 'startTime' (ISO) and 'reason'.",
           thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
@@ -673,7 +662,7 @@ export const GeminiService = {
           }
         }
       });
-      return JSON.parse(response.text || "{}");
+      return JSON.parse((response as any).text || "{}");
     } catch (e) {
       const fallback = new Date();
       fallback.setHours(fallback.getHours() + 2);
@@ -692,7 +681,7 @@ export const GeminiService = {
           tools: [{ googleSearch: {} }]
         }
       });
-      return response.text || "I couldn't process that.";
+      return (response as any).text || "I couldn't process that.";
     } catch (e) {
       return "AI link offline.";
     }
@@ -704,7 +693,7 @@ export const GeminiService = {
               model: 'gemini-3-flash-preview',
               contents: `Plan: "${idea}"`,
               config: {
-                  systemInstruction: "Create event plan. Output JSON only.",
+                  systemInstruction: "Create event plan. JSON only.",
                   thinkingConfig: { thinkingBudget: 0 },
                   responseMimeType: 'application/json',
                   responseSchema: {
@@ -717,7 +706,7 @@ export const GeminiService = {
                   }
               }
           });
-          return JSON.parse(response.text || "{}");
+          return JSON.parse((response as any).text || "{}");
       } catch (e) {
           return { checklist: ["Define goal"], emailDraft: "Internal planning Error.", budgetEstimate: "0" };
       }
@@ -725,7 +714,7 @@ export const GeminiService = {
 
   async generateEventDescription(base64Image: string): Promise<EventPost> {
     try {
-      const dataStr = base64Image || "";
+      const dataStr = (base64Image || "") as string;
       const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -748,7 +737,7 @@ export const GeminiService = {
           }
         }
       });
-      return JSON.parse(response.text || "{}");
+      return JSON.parse((response as any).text || "{}");
     } catch (e) {
       return { caption: "Join our event!", hashtags: ["#event", "#zync"] };
     }
@@ -759,13 +748,13 @@ export const GeminiService = {
           const chat = ai.chats.create({
               model: 'gemini-3-flash-preview',
               config: { 
-                systemInstruction: "Lumi, AI wellness companion. Warm and concise.",
+                systemInstruction: "AI wellness companion. Warm and concise.",
                 thinkingConfig: { thinkingBudget: 0 }
               },
               history: history.slice(0, -1).map(h => ({ role: h.role, parts: [{ text: h.text }] }))
           });
           const result = await chat.sendMessage({ message: history[history.length - 1].text });
-          return result.text || "I'm here for you.";
+          return (result as any).text || "I'm here for you.";
       } catch (e) {
           return "I'm listening.";
       }
@@ -773,7 +762,7 @@ export const GeminiService = {
 
   async analyzeMoodEntry(base64Audio: string): Promise<MoodEntry> {
       try {
-          const dataStr = base64Audio || "";
+          const dataStr = (base64Audio || "") as string;
           const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
           const response = await ai.models.generateContent({
               model: 'gemini-3-flash-preview',
@@ -784,21 +773,21 @@ export const GeminiService = {
                   ]
               },
               config: {
-                  systemInstruction: "Output JSON sentiment analysis only.",
+                  systemInstruction: "JSON sentiment analysis only.",
                   thinkingConfig: { thinkingBudget: 0 },
                   responseMimeType: 'application/json',
                   responseSchema: {
                       type: Type.OBJECT,
                       properties: {
                           transcription: { type: Type.STRING },
-                          sentiment: { type: Type.STRING, enum: ['Happy', 'Calm', 'Stressed', 'Anxious'] },
+                          sentiment: { type: Type.STRING },
                           score: { type: Type.INTEGER },
                           advice: { type: Type.STRING }
                       }
                   }
               }
           });
-          return JSON.parse(response.text || "{}");
+          return JSON.parse((response as any).text || "{}");
       } catch (e) {
           return { transcription: "Processing error.", sentiment: "Calm", score: 50, advice: "Take a deep breath." };
       }
@@ -827,13 +816,13 @@ export const GeminiService = {
                   }
               }
           });
-          return JSON.parse(response.text || "[]");
+          return JSON.parse((response as any).text || "[]");
       } catch (e) { return []; }
   },
 
   async analyzeSafetyFeed(base64Image: string): Promise<SafetyAlert> {
       try {
-          const dataStr = base64Image || "";
+          const dataStr = (base64Image || "") as string;
           const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
           const response = await ai.models.generateContent({
               model: 'gemini-3-flash-preview',
@@ -850,14 +839,14 @@ export const GeminiService = {
                   responseSchema: {
                       type: Type.OBJECT,
                       properties: {
-                          severity: { type: Type.STRING, enum: ['Safe', 'Caution', 'Danger'] },
+                          severity: { type: Type.STRING },
                           description: { type: Type.STRING },
                           actionItem: { type: Type.STRING }
                       }
                   }
               }
           });
-          return JSON.parse(response.text || "{}");
+          return JSON.parse((response as any).text || "{}");
       } catch (e) {
           return { severity: 'Safe', description: 'Monitor inactive.', actionItem: 'Check logs manually.' };
       }
@@ -890,7 +879,7 @@ export const GeminiService = {
                   }
               }
           });
-          return JSON.parse(response.text || "[]");
+          return JSON.parse((response as any).text || "[]");
       } catch (e) { return []; }
   },
 
@@ -898,7 +887,7 @@ export const GeminiService = {
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `Scores: ${JSON.stringify(masteryScores)}. Generate 4-step roadmap.`,
+            contents: `Scores: ${JSON.stringify(masteryScores)}. Roadmap. JSON.`,
             config: {
                 thinkingConfig: { thinkingBudget: 0 },
                 responseMimeType: 'application/json',
@@ -911,7 +900,7 @@ export const GeminiService = {
                 }
             }
         });
-        return JSON.parse(response.text || "[]");
+        return JSON.parse((response as any).text || "[]");
     } catch (e) { return []; }
   },
 
@@ -919,7 +908,7 @@ export const GeminiService = {
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `Scores: ${JSON.stringify(masteryScores)}. Identify skill gaps.`,
+            contents: `Scores: ${JSON.stringify(masteryScores)}. Gaps. JSON.`,
             config: {
                 thinkingConfig: { thinkingBudget: 0 },
                 responseMimeType: 'application/json',
@@ -932,7 +921,7 @@ export const GeminiService = {
                 }
             }
         });
-        return JSON.parse(response.text || "[]");
+        return JSON.parse((response as any).text || "[]");
     } catch (e) { return []; }
   },
 
@@ -940,7 +929,7 @@ export const GeminiService = {
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `Scores: ${JSON.stringify(masteryScores)}. Suggest jobs.`,
+            contents: `Scores: ${JSON.stringify(masteryScores)}. Jobs. JSON.`,
             config: {
                 thinkingConfig: { thinkingBudget: 0 },
                 responseMimeType: 'application/json',
@@ -953,7 +942,7 @@ export const GeminiService = {
                 }
             }
         });
-        return JSON.parse(response.text || "[]");
+        return JSON.parse((response as any).text || "[]");
     } catch (e) { return []; }
   }
 };
