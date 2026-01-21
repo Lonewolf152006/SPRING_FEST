@@ -53,6 +53,15 @@
       ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 10px; }
       ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.2); }
     </style>
+  <script>
+    // Environment Variable Shim for Static Browser Deployment
+    window._ENV_ = {
+      API_KEY: "" // Will be fallback if process.env is not available
+    };
+    if (typeof window.process === 'undefined') {
+      window.process = { env: window._ENV_ };
+    }
+  </script>
   <script type="importmap">
 {
   "imports": {
@@ -69,5 +78,6 @@
   <body>
     <div class="glass-grain"></div>
     <div id="root"></div>
+    <script type="module" src="index.tsx"></script>
   </body>
 </html>
