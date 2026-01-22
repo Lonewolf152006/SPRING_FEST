@@ -51,7 +51,6 @@ const callGeminiText = async (message: string): Promise<string> => {
 
 const safeJsonParse = <T,>(text: string, fallback: T): T => {
   try {
-    // Sometimes Gemini returns ```json ... ```
     const cleaned = text
       .replace(/```json/g, "")
       .replace(/```/g, "")
@@ -83,18 +82,31 @@ export const GeminiService = {
     await DatabaseService.updateMasteryScore(userId, subjectId, newScore);
   },
 
-  // ✅ IMPORTANT: Image/audio/video analysis won't work via simple text-only /api/chat
-  // So we provide safe fallbacks (no crash)
+  // ✅ Safe fallbacks for image/audio/video analysis
   async analyzeExamProctoring(_: string): Promise<ExamProctoringAnalysis> {
-    return { faceDetected: false, attentionScore: 0, confusionScore: 0, stressScore: 0, confidenceScore: 0 };
+    return {
+      faceDetected: false,
+      attentionScore: 0,
+      confusionScore: 0,
+      stressScore: 0,
+      confidenceScore: 0,
+    };
   },
 
   async analyzeClassroomImage(_: string): Promise<ConfusionAnalysis> {
-    return { confusionScore: 0, summary: "Image analysis not enabled on this deployment.", mood: "focused" };
+    return {
+      confusionScore: 0,
+      summary: "Image analysis not enabled on this deployment.",
+      mood: "focused",
+    };
   },
 
   async analyzeStudentAttention(_: string): Promise<ConfusionAnalysis> {
-    return { confusionScore: 0, summary: "Image analysis not enabled on this deployment.", mood: "focused" };
+    return {
+      confusionScore: 0,
+      summary: "Image analysis not enabled on this deployment.",
+      mood: "focused",
+    };
   },
 
   // ✅ TEXT FEATURES WORKING ✅
@@ -103,7 +115,10 @@ export const GeminiService = {
       if (reviews.length === 0) return "No peer insights have been shared yet.";
 
       const reviewText = reviews
-        .map((r) => `[T:${r.teamworkScore}, Cr:${r.creativityScore}, Co:${r.communicationScore}] Feedback: ${r.comment}`)
+        .map(
+          (r) =>
+            `[T:${r.teamworkScore}, Cr:${r.creativityScore}, Co:${r.communicationScore}] Feedback: ${r.comment}`
+        )
         .join("\n---\n");
 
       const prompt = `Summarize peer feedback in max 100 words:\n${reviewText}`;
@@ -143,7 +158,9 @@ Return ONLY JSON:
 
   async generateStudyGoals(subjects: string[]): Promise<string> {
     try {
-      const prompt = `Generate one concise, motivating daily study goal for: ${subjects.join(", ")}. Max 25 words.`;
+      const prompt = `Generate one concise, motivating daily study goal for: ${subjects.join(
+        ", "
+      )}. Max 25 words.`;
       return await callGeminiText(prompt);
     } catch {
       return "Review your core subjects today.";
@@ -175,34 +192,24 @@ Reply to the student's last message:
   },
 
   // ✅ THIS FIXES PRACTICE ARENA QUESTIONS ✅
-async generateQuiz(topic: string, difficulty: string): Promise<QuizQuestion | string> {
-  try {
-    const prompt = `
-Return ONLY valid JSON (no text, no markdown).
-{
-  "question": "...",
-  "options": ["A","B","C","D"],
-  "correctIndex": 0,
-  "explanation": "..."
-}
+  async generateQuiz(topic: string, difficulty: string): Promise<QuizQuestion | string> {
+    try {
+      const prompt = `
+Create exactly 1 MCQ.
 Topic: ${topic}
 Difficulty: ${difficulty}
-    `;
 
-    const reply = await callGeminiText(prompt);
-
-    return JSON.parse(reply.replace(/```json|```/g, "").trim());
-  } catch (e) {
-    return handleApiError(e);
-  }
-},
-
-
-
-  const reply = await callGeminiText(prompt);
-
-  return JSON.parse(reply.replace(/```json|```/g, "").trim());
+Return ONLY JSON (no extra text):
+{
+  "question": "string",
+  "options": ["A","B","C","D"],
+  "correctIndex": 0,
+  "explanation": "string",
+  "theory": "string",
+  "steps": ["step1","step2"],
+  "difficulty": "${difficulty}"
 }
+      `;
 
       const reply = await callGeminiText(prompt);
 
@@ -263,7 +270,12 @@ Return ONLY JSON:
 }
 `;
     const reply = await callGeminiText(prompt);
-    return safeJsonParse(reply, { topic: subject, pblActivity: "", discussionQuestions: [], formativeAssessment: "" });
+    return safeJsonParse(reply, {
+      topic: subject,
+      pblActivity: "",
+      discussionQuestions: [],
+      formativeAssessment: "",
+    });
   },
 
   async analyzePeerReview(reviewText: string): Promise<PeerReviewAnalysis> {
@@ -279,7 +291,11 @@ Review:
 "${reviewText}"
 `;
     const reply = await callGeminiText(prompt);
-    return safeJsonParse(reply, { teamworkScore: 0, creativityScore: 0, feedback: "Feedback analysis unavailable." });
+    return safeJsonParse(reply, {
+      teamworkScore: 0,
+      creativityScore: 0,
+      feedback: "Feedback analysis unavailable.",
+    });
   },
 
   async generateAdminReport(stats: any): Promise<AdminReport> {
@@ -311,7 +327,9 @@ Stats: ${JSON.stringify(stats)}
 
   async generateWeeklyReportText(stats: any): Promise<string> {
     try {
-      const prompt = `Write a professional weekly report in markdown from this JSON:\n${JSON.stringify(stats)}`;
+      const prompt = `Write a professional weekly report in markdown from this JSON:\n${JSON.stringify(
+        stats
+      )}`;
       return await callGeminiText(prompt);
     } catch {
       return "Error generating report.";
@@ -338,15 +356,26 @@ Stats: ${JSON.stringify(stats)}
   },
 
   async analyzeInterviewResponse(_: string, __: string): Promise<InterviewAnalysis> {
-    return { transcription: "Not supported in this deployment.", confidenceScore: 0, hiringProbability: 0, feedback: "", keywordsDetected: [] };
+    return {
+      transcription: "Not supported in this deployment.",
+      confidenceScore: 0,
+      hiringProbability: 0,
+      feedback: "",
+      keywordsDetected: [],
+    };
   },
 
   async analyzeLectureVideo(_: string): Promise<LectureSummary> {
-    return { summary: "Not supported in this deployment.", keyMoments: [], flashcards: [], smartNotes: [], quiz: [] };
+    return {
+      summary: "Not supported in this deployment.",
+      keyMoments: [],
+      flashcards: [],
+      smartNotes: [],
+      quiz: [],
+    };
   },
 
   async askCampusGuide(query: string): Promise<CampusMapResponse> {
-    // basic text answer
     const text = await callGeminiText(`Answer this campus guide question: ${query}`);
     return { text, links: [] };
   },
@@ -416,7 +445,10 @@ Idea: ${idea}
   },
 
   async getWellnessChatResponse(history: ChatMessage[]): Promise<string> {
-    const convo = history.slice(-6).map((h) => `${h.role}: ${h.text}`).join("\n");
+    const convo = history
+      .slice(-6)
+      .map((h) => `${h.role}: ${h.text}`)
+      .join("\n");
     return await callGeminiText(`You are an AI wellness companion. Warm and concise.\n${convo}`);
   },
 
