@@ -175,24 +175,23 @@ Reply to the student's last message:
   },
 
   // ✅ THIS FIXES PRACTICE ARENA QUESTIONS ✅
-  async generateQuiz(topic: string, difficulty: string): Promise<QuizQuestion | string> {
-    try {
-      const prompt = `
-Create exactly 1 MCQ question.
-Topic: ${topic}
-Difficulty: ${difficulty}
-
-Return ONLY JSON (no extra text):
+ async generateQuiz(topic: string, difficulty: string) {
+  const prompt = `
+Return ONLY valid JSON (no text, no markdown).
 {
-  "question": "string",
+  "question": "...",
   "options": ["A","B","C","D"],
   "correctIndex": 0,
-  "explanation": "string",
-  "theory": "string",
-  "steps": ["step1","step2"],
-  "difficulty": "${difficulty}"
+  "explanation": "..."
 }
-`;
+Topic: ${topic}
+Difficulty: ${difficulty}
+  `;
+
+  const reply = await callGeminiText(prompt);
+
+  return JSON.parse(reply.replace(/```json|```/g, "").trim());
+}
 
       const reply = await callGeminiText(prompt);
 
