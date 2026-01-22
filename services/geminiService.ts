@@ -43,6 +43,7 @@ const callGeminiText = async (message: string): Promise<string> => {
   return data?.reply || "";
 };
 
+
 const safeJsonParse = <T,>(text: string, fallback: T): T => {
   try {
     const cleaned = text
