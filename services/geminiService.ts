@@ -198,6 +198,7 @@ Difficulty: ${difficulty}
 },
 
 
+
   const reply = await callGeminiText(prompt);
 
   return JSON.parse(reply.replace(/```json|```/g, "").trim());
