@@ -163,14 +163,8 @@ const LoginGateway: React.FC<LoginGatewayProps> = ({ onLogin, dbStatus }) => {
                         </h4>
                         <div className="space-y-6 text-[10px] text-slate-300 leading-relaxed">
                             <div>
-                                <p className="text-indigo-400 font-black mb-1 uppercase tracking-tighter">
-  1. Enable Global Signup
-</p>
-
-<p>
-  In Supabase Console: <b>Auth &gt; Providers &gt; Email</b> → Enable{" "}
-  <b>Allow new users to sign up</b>.
-</p>
+                                <p className="text-indigo-400 font-black mb-1 uppercase tracking-tighter">1. Enable Global Signup </p>
+                              <p> In Supabase Console: <b>Auth &gt; Providers &gt; Email</b> → Enable{" "} <b>Allow new users to sign up</b>. </p>
 
 
 
