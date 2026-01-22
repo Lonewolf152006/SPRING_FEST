@@ -476,7 +476,9 @@ const PracticeArena = () => {
                                                            {multimodalContent.connections.map((conn, i) => (
                                                                <div key={i} className="flex items-center gap-2">
                                                                    <div className="bg-teal-800 px-4 py-2 rounded-lg text-xs font-bold text-teal-200 border border-teal-600">{conn.from}</div>
-                                                                   <div className="text-[10px] text-teal-400 font-mono">--[{conn.relation}]--></div>
+                                                                   <div className="text-[10px] text-teal-400 font-mono">{`--[${conn.relation}]-->`}
+                                                                   </div>
+
                                                                    <div className="bg-teal-600 px-4 py-2 rounded-lg text-xs font-bold text-white border border-teal-400 shadow-lg shadow-teal-500/20">{conn.to}</div>
                                                                </div>
                                                            ))}
