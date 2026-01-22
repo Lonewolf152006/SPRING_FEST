@@ -1,18 +1,16 @@
-
-import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { QuizQuestion, ConfusionAnalysis, ExamProctoringAnalysis, PeerReviewAnalysis, ChatMessage, ClassInsights, LessonPlan, AdminReport, InterviewAnalysis, LectureSummary, CampusMapResponse, ResumeFeedback, CalendarEvent, Task, EventPlan, EventPost, MoodEntry, ScholarshipMatch, SafetyAlert, ProjectTemplate, ExplanationMode, MultimodalResult, PeerReview, CareerMilestone, CourseRecommendation, JobMatch } from "../types";
 import { DatabaseService } from "./databaseService";
 
 // API key obtained exclusively from process.env.API_KEY as per guidelines.
-const callGemini = async (message: string) => {
+const callGemini = async (payload: any) => {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify(payload),
   });
-  const data = await res.json();
-  return data.reply;
+  return await res.json();
 };
+
 
 
 const handleApiError = (e: any) => {
