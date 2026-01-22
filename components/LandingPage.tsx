@@ -285,7 +285,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
           <h2 className="text-4xl md:text-6xl font-black mb-10">Initialize Your Potential.</h2>
           <button onClick={onEnter} className="px-10 py-5 bg-white text-slate-900 rounded-full font-black text-lg hover:scale-105 transition-transform shadow-2xl">Start Now</button>
           <div className="mt-20 pt-12 border-t border-white/10 text-[10px] font-black uppercase tracking-widest text-slate-500">
-              © 2024 ZYNC AMEP.OS • Powered by Gemini 3 Flash
+              ©ZYNC AMEP.OS • Powered by Gemini 3 Flash
           </div>
       </footer>
     </div>
