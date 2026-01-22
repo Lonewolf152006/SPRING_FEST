@@ -1,9 +1,3 @@
-// services/gemini.ts (FIXED FOR VERCEL)
-// ✅ Uses Vercel API route: /api/chat
-// ✅ No @google/genai in frontend
-// ✅ Keeps your DB functions working
-// ✅ Only implements features commonly used in UI (Quiz + StudyCoach + Goals + Summary + ProjectHelp + Basic stubs)
-
 import {
   QuizQuestion,
   ConfusionAnalysis,
@@ -70,7 +64,6 @@ const handleApiError = (e: any) => {
 };
 
 export const GeminiService = {
-  // ✅ DB FUNCTIONS (unchanged)
   async getMasteryScores(userId: string = "S1"): Promise<Record<string, number>> {
     return await DatabaseService.getMasteryScores(userId);
   },
@@ -82,7 +75,6 @@ export const GeminiService = {
     await DatabaseService.updateMasteryScore(userId, subjectId, newScore);
   },
 
-  // ✅ Safe fallbacks for image/audio/video analysis
   async analyzeExamProctoring(_: string): Promise<ExamProctoringAnalysis> {
     return {
       faceDetected: false,
@@ -109,7 +101,6 @@ export const GeminiService = {
     };
   },
 
-  // ✅ TEXT FEATURES WORKING ✅
   async generateAnonymousSummary(reviews: PeerReview[]): Promise<string> {
     try {
       if (reviews.length === 0) return "No peer insights have been shared yet.";
@@ -191,7 +182,6 @@ Reply to the student's last message:
     }
   },
 
-  // ✅ THIS FIXES PRACTICE ARENA QUESTIONS ✅
   async generateQuiz(topic: string, difficulty: string): Promise<QuizQuestion | string> {
     try {
       const prompt = `
@@ -245,7 +235,6 @@ Return ONLY JSON (no extra text):
     }
   },
 
-  // ✅ DB logging
   async submitSessionReport(data: any): Promise<void> {
     await DatabaseService.logSession(data.studentId, data.mode, data);
   },
@@ -336,7 +325,6 @@ Stats: ${JSON.stringify(stats)}
     }
   },
 
-  // ❌ Not supported in this deployment style
   async generateSpeech(_: string): Promise<string | null> {
     return null;
   },
@@ -437,7 +425,11 @@ Create event plan. Return ONLY JSON:
 Idea: ${idea}
 `;
     const reply = await callGeminiText(prompt);
-    return safeJsonParse(reply, { checklist: ["Define goal"], emailDraft: "Planning error.", budgetEstimate: "0" });
+    return safeJsonParse(reply, {
+      checklist: ["Define goal"],
+      emailDraft: "Planning error.",
+      budgetEstimate: "0",
+    });
   },
 
   async generateEventDescription(_: string): Promise<EventPost> {
