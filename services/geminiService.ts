@@ -175,8 +175,9 @@ Reply to the student's last message:
   },
 
   // ✅ THIS FIXES PRACTICE ARENA QUESTIONS ✅
- async generateQuiz(topic: string, difficulty: string) {
-  const prompt = `
+async generateQuiz(topic: string, difficulty: string): Promise<QuizQuestion | string> {
+  try {
+    const prompt = `
 Return ONLY valid JSON (no text, no markdown).
 {
   "question": "...",
@@ -186,7 +187,16 @@ Return ONLY valid JSON (no text, no markdown).
 }
 Topic: ${topic}
 Difficulty: ${difficulty}
-  `;
+    `;
+
+    const reply = await callGeminiText(prompt);
+
+    return JSON.parse(reply.replace(/```json|```/g, "").trim());
+  } catch (e) {
+    return handleApiError(e);
+  }
+},
+
 
   const reply = await callGeminiText(prompt);
 
