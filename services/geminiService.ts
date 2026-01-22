@@ -4,7 +4,16 @@ import { QuizQuestion, ConfusionAnalysis, ExamProctoringAnalysis, PeerReviewAnal
 import { DatabaseService } from "./databaseService";
 
 // API key obtained exclusively from process.env.API_KEY as per guidelines.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || (window as any)._ENV_?.API_KEY });
+const callGemini = async (message: string) => {
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  const data = await res.json();
+  return data.reply;
+};
+
 
 const handleApiError = (e: any) => {
   console.error("Gemini API Error:", e);
@@ -30,7 +39,7 @@ export const GeminiService = {
     try {
       const dataStr = (base64Image || "") as string;
       const base64Data = dataStr.includes(',') ? dataStr.split(',')[1] : dataStr;
-      const response = await ai.models.generateContent({
+      const response = await callGemini({
         model: 'gemini-3-flash-preview',
         contents: {
           parts: [
@@ -66,7 +75,7 @@ export const GeminiService = {
     try {
       if (reviews.length === 0) return "No peer insights have been shared yet.";
       const reviewText = reviews.map(r => `[T:${r.teamworkScore}, Cr:${r.creativityScore}, Co:${r.communicationScore}] Feedback: ${r.comment}`).join("\n---\n");
-      const response = await ai.models.generateContent({
+      const response = await callGemini({
         model: 'gemini-3-flash-preview',
         contents: `Summarize: ${reviewText}`,
         config: {
