@@ -1,49 +1,41 @@
-// api/chat.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // ✅ GET support (so opening /api/chat in browser works)
   if (req.method === "GET") {
-    return res.status(200).json({ ok: true, message: "API is running ✅" });
+    return res.status(200).json({ ok: true, message: "Groq API running ✅" });
   }
 
-  // ✅ Only POST allowed for frontend calls
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Only POST allowed" });
   }
 
   try {
-    const message = req.body?.message || req.body?.prompt || "";
+    const message = req.body?.message || "";
 
     if (!message) {
       return res.status(400).json({ error: "Message is required" });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: "GEMINI_API_KEY not set in Vercel" });
+      return res.status(500).json({ error: "GROQ_API_KEY not set in Vercel" });
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-    const geminiRes = await fetch(url, {
+    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
       body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: message }],
-          },
-        ],
+        model: "llama-3.1-8b-instant",
+        messages: [{ role: "user", content: message }],
+        temperature: 0.7,
       }),
     });
 
-    const data = await geminiRes.json();
-
-    const reply =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") ||
-      "";
+    const data = await groqRes.json();
+    const reply = data?.choices?.[0]?.message?.content || "";
 
     return res.status(200).json({ reply });
   } catch (err: any) {
