@@ -175,7 +175,7 @@ const App: React.FC = () => {
 
     if (initializing) {
         return (
-            <div className="h-screen w-full flex items-center justify-center bg-slate-50 relative overflow-hidden">
+            <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 relative overflow-y-auto">
                 <div className="flex flex-col items-center gap-6 relative z-10">
                     <div className="w-16 h-16 border-[6px] border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
                     <div className="flex flex-col items-center gap-1">
