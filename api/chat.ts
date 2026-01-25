@@ -1,22 +1,23 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
+  // Allow GET test
   if (req.method === "GET") {
     return res.status(200).json({ ok: true, message: "Groq API running ✅" });
   }
 
+  // Only POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Only POST allowed" });
   }
 
   try {
-    const message = req.body?.message || "";
+    const message = req.body?.message;
 
     if (!message) {
       return res.status(400).json({ error: "Message is required" });
     }
 
     const apiKey = process.env.GROQ_API_KEY;
+
     if (!apiKey) {
       return res.status(500).json({ error: "GROQ_API_KEY not set in Vercel" });
     }
